@@ -182,6 +182,7 @@ func (pp *PacketProcessor) HandlePacket(data []byte) {
 			}
 
 		case layers.LayerTypeDHCPv6:
+			v("DHCPv6 packet received - MsgType: %d, VLAN: %d", pp.dhcpv6.MsgType, vlan)
 			// Handle DHCPv6 Advertise (2) and Reply (7) messages
 			if pp.dhcpv6.MsgType == 2 || pp.dhcpv6.MsgType == 7 {
 				v("DHCPv6 %s - Transaction ID: %x",
@@ -206,10 +207,50 @@ func (pp *PacketProcessor) HandlePacket(data []byte) {
 					case layers.DHCPv6OptServerID:
 						v("DHCPv6 Server ID found")
 					case 3: // IA_NA (Identity Association for Non-temporary Addresses)
-						if len(opt.Data) >= 16 { // Minimum IA_NA size
+						if len(opt.Data) >= 12 { // Minimum IA_NA size (IAID + T1 + T2)
 							v("DHCPv6 IA_NA found")
-							// IA_NA contains IAADDR options with assigned addresses
-							// This is a simplified parsing - full parsing would need more work
+							// Parse IA_NA sub-options to find IAADDR options
+							// IA_NA format: IAID(4) + T1(4) + T2(4) + sub-options
+							subOptData := opt.Data[12:] // Skip IAID, T1, T2
+
+							// Parse sub-options within IA_NA
+							for len(subOptData) >= 4 {
+								subOptCode := uint16(subOptData[0])<<8 | uint16(subOptData[1])
+								subOptLen := uint16(subOptData[2])<<8 | uint16(subOptData[3])
+
+								if len(subOptData) < int(4+subOptLen) {
+									break // Not enough data
+								}
+
+								subOptPayload := subOptData[4 : 4+subOptLen]
+
+								if subOptCode == 5 && len(subOptPayload) >= 24 { // IAADDR option
+									// IAADDR format: IPv6 address(16) + preferred-lifetime(4) + valid-lifetime(4) + sub-options
+									addr := net.IP(subOptPayload[:16])
+									v("DHCPv6 assigned address: %s", addr.String())
+
+									// For DHCPv6, individual addresses are typically /128 unless part of a larger prefix
+									// Most DHCPv6 deployments use /64 prefixes for the link
+									prefixLen := 64 // Common DHCPv6 prefix length
+
+									assignedPrefix := net.IPNet{
+										IP:   addr,
+										Mask: net.CIDRMask(prefixLen, 128),
+									}
+									findings.AddIPv6Host(vlan, addr)
+
+									// For DHCPv6, the gateway is typically the server's link-local address
+									// We'll use the server IP as the gateway since DHCPv6 doesn't provide explicit gateway info
+									currentGateway := gatewayIP
+									if currentGateway == nil {
+										currentGateway = serverIP
+									}
+									findings.AddIPv6DHCP(vlan, assignedPrefix, currentGateway, serverIP)
+								}
+
+								// Move to next sub-option
+								subOptData = subOptData[4+subOptLen:]
+							}
 						}
 					case 25: // IA_PD (Identity Association for Prefix Delegation)
 						if len(opt.Data) >= 12 { // Minimum IA_PD size

@@ -70,6 +70,11 @@ func main() {
 		printDevices()
 		return
 	}
+
+	if *dhcpv6 && !*sendRA {
+		*sendRA = true
+		v("DHCPv6 requires sending Router Advertisements, enabling...")
+	}
 	if *randomMAC {
 		*macAddress = GenerateRandomMAC()
 		v("Using random mac address: %s", *macAddress)
