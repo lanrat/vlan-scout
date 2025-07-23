@@ -1,0 +1,9 @@
+{
+    "makefile.configureOnOpen": false,
+    "search.exclude": {
+        "**/vendor": true,
+        "**/.git": true
+    },
+    "go.lintOnSave": "workspace",
+    "go.vetOnSave": "workspace"
+}

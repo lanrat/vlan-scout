@@ -1,0 +1,16 @@
+FROM ghcr.io/goreleaser/goreleaser-cross:v1.24.5
+
+RUN dpkg --add-architecture arm64 && \
+    dpkg --add-architecture armhf && \
+    apt-get update && \
+    apt-get install -y wget unzip \
+    libpcap-dev libpcap-dev:arm64 libpcap-dev:armhf \
+    mingw-w64 gcc-mingw-w64-x86-64 \
+    gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+
+# install windows npcap sdk
+RUN wget -O /tmp/npcap-sdk.zip https://npcap.com/dist/npcap-sdk-1.13.zip && \
+    unzip /tmp/npcap-sdk.zip -d /opt/npcap-sdk && \
+    rm /tmp/npcap-sdk.zip
+
+

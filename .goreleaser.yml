@@ -1,0 +1,123 @@
+# .goreleaser.yml
+version: 2
+project_name: vlan-scout
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: vlan-scout-amd64
+    main: .
+    binary: vlan-scout
+    goos:
+      - linux
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+  - id: vlan-scout-arm64
+    main: .
+    binary: vlan-scout
+    goos:
+      - linux
+    goarch:
+      - arm64
+    env:
+      - CGO_ENABLED=1
+      - CC=aarch64-linux-gnu-gcc
+      - CXX=aarch64-linux-gnu-g++
+      - PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+      
+  - id: vlan-scout-windows
+    main: .
+    binary: vlan-scout
+    goos:
+      - windows
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=1
+      - CC=x86_64-w64-mingw32-gcc
+      - CXX=x86_64-w64-mingw32-g++
+      - CGO_CFLAGS=-I/opt/npcap-sdk/Include
+      - CGO_LDFLAGS=-L/opt/npcap-sdk/Lib/x64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+  - id: vlan-scout-darwin-amd64
+    main: .
+    binary: vlan-scout
+    goos:
+      - darwin
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=1
+      - CC=o64-clang	
+      - CXX=o64-clang++
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+  - id: vlan-scout-darwin-arm64
+    main: .
+    binary: vlan-scout
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    env:
+      - CGO_ENABLED=1
+      - CC=oa64-clang
+      - CXX=oa64-clang++
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+  - id: vlan-scout-armhf
+    main: .
+    binary: vlan-scout
+    goos:
+      - linux
+    goarch:
+      - arm
+    goarm:
+      - 7
+    env:
+      - CGO_ENABLED=1
+      - CC=arm-linux-gnueabihf-gcc
+      - CXX=arm-linux-gnueabihf-g++
+      - PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - # This single archive definition handles all OSes.
+    # The default format is 'tar.gz', which is used for linux and darwin.
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: ['zip'] # Override the format to 'zip' for Windows builds.
+
+checksum:
+  name_template: 'checksums.txt'
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'

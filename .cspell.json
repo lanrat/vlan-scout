@@ -1,0 +1,33 @@
+{
+    "version": "0.2",
+    "ignorePaths": [],
+    "dictionaryDefinitions": [],
+    "dictionaries": [],
+    "words": [
+        "acks",
+        "Buildx",
+        "dhcpv",
+        "dhosts",
+        "DUID",
+        "elif",
+        "golangci",
+        "gopacket",
+        "GOPROXY",
+        "goreleaser",
+        "goroutines",
+        "IAADDR",
+        "IAPREFIX",
+        "icmpv",
+        "iface",
+        "libpcap",
+        "LLDP",
+        "Npcap",
+        "slaac",
+        "slla",
+        "SNMP",
+        "strs",
+        "waitgroup"
+    ],
+    "ignoreWords": [],
+    "import": []
+}

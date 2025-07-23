@@ -1,0 +1,280 @@
+package main
+
+import (
+	"log"
+	"net"
+
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
+)
+
+// PacketProcessor holds pre-allocated layers and parser for efficient packet processing
+type PacketProcessor struct {
+	parser        *gopacket.DecodingLayerParser
+	decodedLayers []gopacket.LayerType
+	eth           layers.Ethernet
+	dot1q         layers.Dot1Q
+	ipv4          layers.IPv4
+	ipv6          layers.IPv6
+	arp           layers.ARP
+	udp           layers.UDP
+	icmpv6        layers.ICMPv6
+	icmpv6NA      layers.ICMPv6NeighborAdvertisement
+	icmpv6NS      layers.ICMPv6NeighborSolicitation
+	icmpv6RS      layers.ICMPv6RouterSolicitation
+	icmpv6RA      layers.ICMPv6RouterAdvertisement
+	dhcpv4        layers.DHCPv4
+	dhcpv6        layers.DHCPv6
+}
+
+// NewPacketProcessor creates a new PacketProcessor with pre-allocated layers
+func NewPacketProcessor() *PacketProcessor {
+	pp := &PacketProcessor{
+		decodedLayers: make([]gopacket.LayerType, 0, 10),
+	}
+
+	pp.parser = gopacket.NewDecodingLayerParser(
+		layers.LayerTypeEthernet,
+		&pp.eth,
+		&pp.dot1q,    // 802.1Q VLAN tag
+		&pp.arp,      // ARP comes directly after Ethernet/VLAN
+		&pp.ipv4,     // Network layer
+		&pp.ipv6,     // Network layer
+		&pp.udp,      // Transport layer
+		&pp.icmpv6,   // Transport layer
+		&pp.icmpv6NA, // ICMPv6 subtypes
+		&pp.icmpv6NS,
+		&pp.icmpv6RS,
+		&pp.icmpv6RA,
+		&pp.dhcpv4, // Application layer
+		&pp.dhcpv6, // Application layer
+	)
+
+	return pp
+}
+
+// HandlePacket processes captured network packets using pre-allocated layers for better performance
+func (pp *PacketProcessor) HandlePacket(data []byte) {
+	if *printPackets {
+		log.Printf("Raw packet data: %x", data)
+	}
+
+	// Parse the packet data
+	err := pp.parser.DecodeLayers(data, &pp.decodedLayers)
+	if err != nil {
+		v("Partial decoding error: %v", err)
+		// Continue processing what was successfully decoded
+	}
+
+	// Check if we have VLAN tag
+	hasVLAN := false
+	var vlan uint16
+	for _, layerType := range pp.decodedLayers {
+		if layerType == layers.LayerTypeDot1Q {
+			hasVLAN = true
+			vlan = pp.dot1q.VLANIdentifier
+			break
+		}
+	}
+
+	if !hasVLAN {
+		return
+	}
+
+	// Skip packets from our own MAC address
+	if pp.eth.SrcMAC.String() == *macAddress {
+		return
+	}
+
+	// Process each decoded layer
+	for _, layerType := range pp.decodedLayers {
+		switch layerType {
+		case layers.LayerTypeARP:
+			arpSrcIP := net.IP(pp.arp.SourceProtAddress)
+			v("vlan %d ARP Reply for: %s", vlan, arpSrcIP)
+			findings.AddIPv4Host(vlan, arpSrcIP)
+
+		case layers.LayerTypeICMPv6NeighborAdvertisement:
+			v("vlan %d NDP Neighbor Advertisement - Target IP: %s", vlan, pp.icmpv6NA.TargetAddress)
+			findings.AddIPv6Host(vlan, pp.icmpv6NA.TargetAddress)
+
+		case layers.LayerTypeICMPv6NeighborSolicitation:
+			v("vlan %d NDP Neighbor Solicitation - Target IP: %s", vlan, pp.icmpv6NS.TargetAddress)
+			findings.AddIPv6Host(vlan, pp.icmpv6NS.TargetAddress)
+
+		case layers.LayerTypeICMPv6RouterSolicitation:
+			v("vlan %d Received ICMPv6 Router Solicitation from: %s", vlan, pp.ipv6.SrcIP)
+			findings.AddIPv6Host(vlan, pp.ipv6.SrcIP)
+
+		case layers.LayerTypeICMPv6RouterAdvertisement:
+			v("vlan %d Received ICMPv6 Router Advertisement", vlan)
+			gateway := pp.ipv6.SrcIP
+			findings.AddIPv6Host(vlan, gateway)
+
+			var slaacIP net.IPNet
+
+			for _, option := range pp.icmpv6RA.Options {
+				switch option.Type {
+				case layers.ICMPv6OptPrefixInfo:
+					// Prefix Information option (RFC 4861, Section 4.6.2)
+					// Data length must be 30 bytes. We only take the first prefix found.
+					if len(option.Data) == 30 && slaacIP.IP == nil {
+						prefixLen := int(option.Data[0])
+						prefix := net.IP(option.Data[14:])
+						slaacIP = IP2IPNet(prefix, net.CIDRMask(prefixLen, 128))
+						v("vlan %d RA: Found Prefix %s", vlan, slaacIP.String())
+					}
+				}
+			}
+
+			// If we found a prefix, we can record the finding. The gateway is always present.
+			if slaacIP.IP != nil {
+				findings.AddIPv6SLAAC(vlan, slaacIP, gateway)
+			}
+
+		case layers.LayerTypeIPv4:
+			v("vlan %d IPv4 Packet - Src: %s Dst: %s", vlan, pp.ipv4.SrcIP, pp.ipv4.DstIP)
+			findings.AddIPv4Host(vlan, pp.ipv4.SrcIP)
+
+		case layers.LayerTypeIPv6:
+			v("vlan %d IPv6 Packet - Src: %s Dst: %s", vlan, pp.ipv6.SrcIP, pp.ipv6.DstIP)
+			findings.AddIPv6Host(vlan, pp.ipv6.SrcIP)
+
+		case layers.LayerTypeDHCPv4:
+			if pp.dhcpv4.Operation == layers.DHCPOpReply {
+				v("DHCP Reply - your client ip: %s", pp.dhcpv4.YourClientIP.String())
+
+				var netmask net.IPMask
+				var gateway net.IP
+				var server net.IP
+
+				for _, opt := range pp.dhcpv4.Options {
+					v("option: %v", opt)
+					switch opt.Type {
+					case layers.DHCPOptSubnetMask:
+						netmask = net.IPMask(opt.Data)
+					case layers.DHCPOptRouter:
+						gateway = net.IP(opt.Data)
+						findings.AddIPv4Host(vlan, net.IP(opt.Data))
+					case layers.DHCPOptServerID:
+						server = net.IP(opt.Data)
+						findings.AddIPv4Host(vlan, net.IP(opt.Data))
+					}
+				}
+
+				ip := IP2IPNet(pp.dhcpv4.YourClientIP, netmask)
+				findings.AddIPv4DHCP(vlan, ip, gateway, server)
+			}
+
+		case layers.LayerTypeDHCPv6:
+			// Handle DHCPv6 Advertise (2) and Reply (7) messages
+			if pp.dhcpv6.MsgType == 2 || pp.dhcpv6.MsgType == 7 {
+				v("DHCPv6 %s - Transaction ID: %x",
+					func() string {
+						if pp.dhcpv6.MsgType == 2 {
+							return "Advertise"
+						}
+						return "Reply"
+					}(),
+					pp.dhcpv6.TransactionID)
+				var serverIP net.IP
+				var assignedPrefix net.IPNet
+
+				serverIP = pp.ipv6.SrcIP
+				findings.AddIPv6Host(vlan, serverIP)
+
+				var gatewayIP net.IP
+
+				for _, opt := range pp.dhcpv6.Options {
+					v("DHCPv6 option: %d, len: %d", opt.Code, opt.Length)
+					switch opt.Code {
+					case layers.DHCPv6OptServerID:
+						v("DHCPv6 Server ID found")
+					case 3: // IA_NA (Identity Association for Non-temporary Addresses)
+						if len(opt.Data) >= 16 { // Minimum IA_NA size
+							v("DHCPv6 IA_NA found")
+							// IA_NA contains IAADDR options with assigned addresses
+							// This is a simplified parsing - full parsing would need more work
+						}
+					case 25: // IA_PD (Identity Association for Prefix Delegation)
+						if len(opt.Data) >= 12 { // Minimum IA_PD size
+							v("DHCPv6 IA_PD (Prefix Delegation) found")
+							// IA_PD contains IAPREFIX options with delegated prefixes
+							// This would contain the actual subnet mask information
+						}
+					case 26: // IAPREFIX (IA Prefix)
+						if len(opt.Data) >= 25 { // 4 + 4 + 1 + 16 bytes minimum
+							// Parse delegated prefix: preferred-lifetime + valid-lifetime + prefix-length + prefix
+							prefixLength := int(opt.Data[8]) // Prefix length at offset 8
+							prefix := net.IP(opt.Data[9:25]) // IPv6 prefix at offset 9
+							v("DHCPv6 delegated prefix: %s/%d", prefix.String(), prefixLength)
+
+							// Use delegated prefix information
+							assignedPrefix = net.IPNet{
+								IP:   prefix,
+								Mask: net.CIDRMask(prefixLength, 128),
+							}
+							findings.AddIPv6Host(vlan, prefix)
+						}
+					case 5: // IAADDR (IA Address)
+						if len(opt.Data) >= 24 { // IAADDR requires 24 bytes minimum (16 addr + 4 preferred + 4 valid)
+							// Extract IPv6 address (first 16 bytes)
+							addr := net.IP(opt.Data[:16])
+							v("DHCPv6 assigned address: %s", addr.String())
+							// For DHCPv6, individual addresses are typically /128 unless part of a delegated prefix
+							// Check if this is part of a larger prefix by looking at network context
+							prefixLen := 128 // Default to individual address
+
+							// If the address appears to be part of a common subnet, adjust prefix
+							// This is heuristic - proper prefix delegation would use IA_PD option
+							if addr.IsGlobalUnicast() {
+								// Most DHCPv6 deployments use /64 prefixes for link-local subnets
+								prefixLen = 64
+							}
+
+							assignedPrefix = net.IPNet{
+								IP:   addr,
+								Mask: net.CIDRMask(prefixLen, 128),
+							}
+							findings.AddIPv6Host(vlan, addr)
+						}
+					case 23: // DNS recursive name server
+						if len(opt.Data) >= 16 && len(opt.Data)%16 == 0 {
+							// Each DNS server is 16 bytes (IPv6 address)
+							for i := 0; i < len(opt.Data); i += 16 {
+								dnsIP := net.IP(opt.Data[i : i+16])
+								v("DHCPv6 DNS server: %s", dnsIP.String())
+								// Do not save DNS server IPs as they may not be on the local network
+							}
+						}
+					case 24: // Option 24: Route Information (RFC 4191)
+						if len(opt.Data) >= 16 {
+							v("DHCPv6 Route Information found")
+							// Parse route information - this is complex and vendor-specific
+							// For now, just log that we found it
+						}
+					case 39: // FQDN option
+						if len(opt.Data) > 1 {
+							hostname := string(opt.Data[1 : len(opt.Data)-1]) // Skip flags and null terminator
+							v("DHCPv6 FQDN: %s", hostname)
+						}
+					case 242: // Option 242: Default Router (vendor-specific, some implementations)
+						if len(opt.Data) >= 16 {
+							gatewayIP = net.IP(opt.Data[:16])
+							v("DHCPv6 Default Router: %s", gatewayIP.String())
+							findings.AddIPv6Host(vlan, gatewayIP)
+						}
+					}
+				}
+
+				if gatewayIP == nil {
+					gatewayIP = serverIP
+				}
+
+				if assignedPrefix.IP != nil {
+					findings.AddIPv6DHCP(vlan, assignedPrefix, gatewayIP, serverIP)
+				}
+			}
+		}
+	}
+}
