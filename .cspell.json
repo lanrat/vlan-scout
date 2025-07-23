@@ -19,6 +19,7 @@
         "goreleaser",
         "goroutines",
         "IAADDR",
+        "IAID",
         "IAPREFIX",
         "icmpv",
         "iface",
