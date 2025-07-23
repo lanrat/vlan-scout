@@ -42,11 +42,7 @@ type VlanFinding struct {
 	IPv4   *DHCPResponse `json:"ipv4_dhcp"`  // IPv4 DHCP configuration
 	IPv6   *DHCPResponse `json:"ipv6_dhcp"`  // IPv6 DHCP configuration
 	IPv6RA *IPv6SLAAC    `json:"ipv6_slaac"` // IPv6 router advertisement
-	// HostsIPv4      map[string]bool `json:"-"`          // Set of discovered IPv4 hosts
-	// HostsIPv4Array []string        `json:"hosts_ipv4"` // Array of IPv4 hosts for JSON
-	// HostsIPv6      map[string]bool `json:"-"`          // Set of discovered IPv6 hosts
-	// HostsIPv6Array []string        `json:"hosts_ipv6"` // Array of IPv6 hosts for JSON
-	Hosts Hosts `json:"hosts"`
+	Hosts  Hosts         `json:"hosts"`
 }
 
 // VlanList returns a sorted list of all VLAN IDs that have findings.
@@ -159,7 +155,7 @@ func (f Findings) String() string {
 	}
 
 	out := "VLAN Discovery Results:\n\n"
-	
+
 	// Sort VLAN IDs for consistent output
 	var vlanIDs []uint16
 	for vlanID := range f.Vlans {
@@ -168,7 +164,7 @@ func (f Findings) String() string {
 	sort.Slice(vlanIDs, func(i, j int) bool {
 		return vlanIDs[i] < vlanIDs[j]
 	})
-	
+
 	for i, vlanID := range vlanIDs {
 		out += f.Vlans[vlanID].String()
 		// Add blank line between VLANs except for the last one
@@ -269,27 +265,27 @@ func (f Findings) AddIPv6SLAAC(vlan uint16, ip net.IPNet, gateway net.IP) {
 // String returns a formatted string representation of the VLAN finding.
 func (v *VlanFinding) String() string {
 	out := fmt.Sprintf("VLAN %d:\n", v.Vlan)
-	
+
 	var items []string
-	
+
 	// Add IPv4 DHCP info
 	if v.IPv4 != nil {
-		items = append(items, fmt.Sprintf("IPv4 DHCP: %s (GW: %s, Server: %s)", 
+		items = append(items, fmt.Sprintf("IPv4 DHCP: %s (GW: %s, Server: %s)",
 			v.IPv4.IP.String(), v.IPv4.Gateway.String(), v.IPv4.Server.String()))
 	}
-	
+
 	// Add IPv6 DHCP info
 	if v.IPv6 != nil {
-		items = append(items, fmt.Sprintf("IPv6 DHCP: %s (GW: %s, Server: %s)", 
+		items = append(items, fmt.Sprintf("IPv6 DHCP: %s (GW: %s, Server: %s)",
 			v.IPv6.IP.String(), v.IPv6.Gateway.String(), v.IPv6.Server.String()))
 	}
-	
+
 	// Add IPv6 SLAAC info
 	if v.IPv6RA != nil {
-		items = append(items, fmt.Sprintf("IPv6 SLAAC: %s (GW: %s)", 
+		items = append(items, fmt.Sprintf("IPv6 SLAAC: %s (GW: %s)",
 			v.IPv6RA.IP.String(), v.IPv6RA.Gateway.String()))
 	}
-	
+
 	// Collect and sort IPv4 hosts
 	var ipv4Hosts []string
 	for host := range v.Hosts.HostsIPv4 {
@@ -299,7 +295,7 @@ func (v *VlanFinding) String() string {
 		sort.Strings(ipv4Hosts)
 		items = append(items, fmt.Sprintf("IPv4 Hosts: %s", strings.Join(ipv4Hosts, ", ")))
 	}
-	
+
 	// Collect and sort IPv6 hosts
 	var ipv6Hosts []string
 	for host := range v.Hosts.HostsIPv6 {
@@ -309,7 +305,7 @@ func (v *VlanFinding) String() string {
 		sort.Strings(ipv6Hosts)
 		items = append(items, fmt.Sprintf("IPv6 Hosts: %s", strings.Join(ipv6Hosts, ", ")))
 	}
-	
+
 	// Add items with proper tree formatting
 	for i, item := range items {
 		if i == len(items)-1 {
@@ -318,7 +314,7 @@ func (v *VlanFinding) String() string {
 			out += "  ├─ " + item + "\n"
 		}
 	}
-	
+
 	return out
 }
 
