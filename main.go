@@ -35,6 +35,7 @@ var (
 	showVersion  = flag.Bool("version", false, "print version and exit")                           // Show version
 	workers      = flag.Int("workers", 10, "number of parallel workers for VLAN scanning")         // Parallel workers
 	timeout      = flag.Duration("timeout", 0, "timeout to wait for responses")                    // Response timeout
+	vlanList     = flag.String("vlans", "", "comma-separated VLAN list (e.g., 1,2,4,60-70,90)")    // Specific VLANs to scan
 )
 
 // VLAN ID constants defining the valid range (1-4094).
@@ -51,6 +52,7 @@ var (
 	activeVlanTest     = uint16(0)
 	activeTestComplete = false
 	active             = false
+	vlansToScan        []uint16
 )
 
 // main is the entry point of the VLAN discovery tool.
@@ -87,6 +89,7 @@ func main() {
 func start() {
 	// Create a waitgroup to ensure sender goroutines finish before shutdown.
 	var wg sync.WaitGroup
+	var err error
 
 	// Create a channel to listen for OS signals.
 	sigs := make(chan os.Signal, 1)
@@ -111,13 +114,18 @@ func start() {
 		close(done)
 	}()
 
+	// Parse the VLAN list from command line argument
+	vlansToScan, err = parseVlanList(*vlanList)
+	if err != nil {
+		log.Fatalf("Error parsing VLAN list: %v", err)
+	}
+
 	if active {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			time.Sleep(time.Second / 2)
 			v("sending active requests with %d workers", *workers)
-			//runDHCPWorkers(*workers)
 			runWorkers(*workers)
 			v("Done sending active requests")
 		}()
@@ -234,6 +242,8 @@ func printDevices() {
 }
 
 func runWorkers(numWorkers int) {
+	v("Scanning %d VLANs", len(vlansToScan))
+
 	// Create a channel to send VLAN IDs to workers
 	vlanChan := make(chan uint16, numWorkers*2)
 
@@ -242,6 +252,8 @@ func runWorkers(numWorkers int) {
 
 	// Track progress with a mutex for thread safety
 	var progressMutex sync.Mutex
+	var processedVlans int
+	totalVlans := len(vlansToScan)
 
 	// Start worker goroutines
 	for i := 0; i < numWorkers; i++ {
@@ -274,8 +286,11 @@ func runWorkers(numWorkers int) {
 
 				// Update progress safely
 				progressMutex.Lock()
-				if vlanID > activeVlanTest {
-					activeVlanTest = vlanID
+				processedVlans++
+				// Update activeVlanTest to show current progress
+				if totalVlans > 0 {
+					// Scale progress to VLAN_MAX for status display compatibility
+					activeVlanTest = uint16(float64(processedVlans) / float64(totalVlans) * float64(VLAN_MAX))
 				}
 				progressMutex.Unlock()
 
@@ -288,8 +303,8 @@ func runWorkers(numWorkers int) {
 	// Send all VLAN IDs to the channel
 	go func() {
 		defer close(vlanChan)
-		for i := VLAN_MIN; i < VLAN_MAX; i++ {
-			vlanChan <- uint16(i)
+		for _, vlanID := range vlansToScan {
+			vlanChan <- vlanID
 		}
 	}()
 

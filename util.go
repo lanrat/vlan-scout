@@ -5,16 +5,20 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
+	"strings"
 )
 
 // v prints verbose output when the verbose flag is enabled.
 // It automatically adds a newline if the format string doesn't end with one.
-func v(fmt string, args ...interface{}) {
+func v(format string, args ...interface{}) {
 	if *verbose {
-		if fmt[len(fmt)-1] != '\n' {
-			fmt += " \n"
+		if format[len(format)-1] != '\n' {
+			format += "\n"
 		}
-		log.Printf("\r"+fmt, args...)
+		// Clear the status line before printing verbose output
+		fmt.Printf("\r" + strings.Repeat(" ", 80) + "\r")
+		log.Printf(format, args...)
 	}
 }
 
@@ -90,4 +94,76 @@ func IP2IPNet(ip net.IP, mask net.IPMask) net.IPNet {
 		IP:   ip,
 		Mask: mask,
 	}
+}
+
+// parseVlanList parses a comma-separated list of VLANs and ranges.
+// Supports individual VLANs (e.g., "1,2,4") and ranges (e.g., "60-70").
+// Returns a slice of VLAN IDs to scan.
+func parseVlanList(vlanStr string) ([]uint16, error) {
+	if vlanStr == "" {
+		// Return full range if no specific VLANs specified
+		vlans := make([]uint16, 0, VLAN_MAX-VLAN_MIN)
+		for i := VLAN_MIN; i < VLAN_MAX; i++ {
+			vlans = append(vlans, uint16(i))
+		}
+		return vlans, nil
+	}
+
+	var vlans []uint16
+	parts := strings.Split(vlanStr, ",")
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		// Check if this is a range (contains "-")
+		if strings.Contains(part, "-") {
+			rangeParts := strings.Split(part, "-")
+			if len(rangeParts) != 2 {
+				return nil, fmt.Errorf("invalid range format: %s", part)
+			}
+
+			start, err := strconv.Atoi(strings.TrimSpace(rangeParts[0]))
+			if err != nil {
+				return nil, fmt.Errorf("invalid start of range: %s", rangeParts[0])
+			}
+
+			end, err := strconv.Atoi(strings.TrimSpace(rangeParts[1]))
+			if err != nil {
+				return nil, fmt.Errorf("invalid end of range: %s", rangeParts[1])
+			}
+
+			// Validate range
+			if start < VLAN_MIN || start > VLAN_MAX {
+				return nil, fmt.Errorf("start VLAN %d out of valid range (%d-%d)", start, VLAN_MIN, VLAN_MAX)
+			}
+			if end < VLAN_MIN || end > VLAN_MAX {
+				return nil, fmt.Errorf("end VLAN %d out of valid range (%d-%d)", end, VLAN_MIN, VLAN_MAX)
+			}
+			if start > end {
+				return nil, fmt.Errorf("invalid range: start %d > end %d", start, end)
+			}
+
+			// Add all VLANs in range
+			for i := start; i <= end; i++ {
+				vlans = append(vlans, uint16(i))
+			}
+		} else {
+			// Single VLAN ID
+			vlan, err := strconv.Atoi(part)
+			if err != nil {
+				return nil, fmt.Errorf("invalid VLAN ID: %s", part)
+			}
+
+			if vlan < VLAN_MIN || vlan > VLAN_MAX {
+				return nil, fmt.Errorf("VLAN %d out of valid range (%d-%d)", vlan, VLAN_MIN, VLAN_MAX)
+			}
+
+			vlans = append(vlans, uint16(vlan))
+		}
+	}
+
+	return vlans, nil
 }

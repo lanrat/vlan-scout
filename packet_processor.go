@@ -11,6 +11,7 @@ import (
 // PacketProcessor holds pre-allocated layers and parser for efficient packet processing
 type PacketProcessor struct {
 	parser        *gopacket.DecodingLayerParser
+	vlans         map[uint16]bool
 	decodedLayers []gopacket.LayerType
 	eth           layers.Ethernet
 	dot1q         layers.Dot1Q
@@ -50,20 +51,28 @@ func NewPacketProcessor() *PacketProcessor {
 		&pp.dhcpv6, // Application layer
 	)
 
+	if (*vlanList) != "" {
+		pp.vlans = make(map[uint16]bool)
+		for _, vlan := range vlansToScan {
+			pp.vlans[vlan] = true
+		}
+	}
+
 	return pp
 }
 
 // HandlePacket processes captured network packets using pre-allocated layers for better performance
 func (pp *PacketProcessor) HandlePacket(data []byte) {
-	if *printPackets {
-		log.Printf("Raw packet data: %x", data)
-	}
 
 	// Parse the packet data
 	err := pp.parser.DecodeLayers(data, &pp.decodedLayers)
 	if err != nil {
 		v("Partial decoding error: %v", err)
 		// Continue processing what was successfully decoded
+	}
+
+	if *printPackets {
+		log.Printf("Raw packet data: %+v", pp.decodedLayers)
 	}
 
 	// Check if we have VLAN tag
@@ -79,6 +88,12 @@ func (pp *PacketProcessor) HandlePacket(data []byte) {
 
 	if !hasVLAN {
 		return
+	}
+
+	if pp.vlans != nil {
+		if !pp.vlans[vlan] {
+			return
+		}
 	}
 
 	// Skip packets from our own MAC address

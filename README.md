@@ -81,6 +81,12 @@ sudo ./vlan-scout -iface eth0
 sudo ./vlan-scout -iface eth0 -dhcp -dhcp6 -ra
 ```
 
+**Scan specific VLANs:**
+
+```bash
+sudo ./vlan-scout -iface eth0 -dhcp -vlans 1,2,4,60-70,90
+```
+
 **Output results in JSON format:**
 
 ```bash
@@ -117,6 +123,8 @@ Usage of ./vlan-scout:
      print verbose output
   -version
      print version and exit
+  -vlans string
+     comma-separated VLAN list (e.g., 1,2,4,60-70,90)
   -workers int
      number of parallel workers for VLAN scanning (default 10)
 ```

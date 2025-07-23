@@ -79,6 +79,18 @@ func sendDHCPv6Solicit(vlanID uint16) error {
 	clientIDOption := layers.NewDHCPv6Option(layers.DHCPv6OptClientID, clientDUID)
 	dhcpv6.Options = append(dhcpv6.Options, clientIDOption)
 
+	// Add IA_NA option (option 3) to request IPv6 address assignment
+	// IA_NA format: IAID(4) + T1(4) + T2(4) + IA_NA-options(variable)
+	ianadata := make([]byte, 12) // IAID + T1 + T2, no sub-options for now
+	// IAID (Identity Association Identifier) - use first 4 bytes of MAC
+	copy(ianadata[0:4], srcMac[0:4])
+	// T1 = 0 (server will set appropriate renewal time)
+	// T2 = 0 (server will set appropriate rebind time)
+	// Remaining bytes are already zero
+	
+	ianaOption := layers.NewDHCPv6Option(3, ianadata) // Option 3 = IA_NA
+	dhcpv6.Options = append(dhcpv6.Options, ianaOption)
+
 	// Add FQDN option (option 39) with hostname
 	if hostname != nil && *hostname != "" {
 		// FQDN option format: flags(1) + DNS label encoded domain name

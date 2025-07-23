@@ -28,7 +28,7 @@ docker-builder:
 	docker build -t builder builder/
 
 .PHONY: release
-release: docker-builder
+release: docker-builder lint
 	docker run --rm \
 		-v `pwd`:/go/src/ \
 		-w /go/src/ \
@@ -64,7 +64,7 @@ test:
 
 # Release target to create a new semantic version tag
 .PHONY: release-tag
-release-tag:
+release-tag: lint
     # This shell 'if' statement runs at execution time, not parse time.
 	@if [ -z "$(BUMP)" ]; then \
 		echo "Error: BUMP is not set. Usage: make release BUMP=patch|minor|major"; \
