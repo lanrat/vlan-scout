@@ -81,12 +81,14 @@ func sendDHCPv6Solicit(vlanID uint16) error {
 
 	// Add FQDN option (option 39) with hostname
 	if hostname != nil && *hostname != "" {
-		// FQDN option format: flags(1) + encoded domain name
-		fqdnData := make([]byte, 1+len(*hostname)+1)
-		fqdnData[0] = 0x00 // Flags: S=0, O=0, N=0 (server should update DNS)
-		copy(fqdnData[1:], []byte(*hostname))
-		// Add null terminator for the domain name
-		fqdnData[len(fqdnData)-1] = 0x00
+		// FQDN option format: flags(1) + DNS label encoded domain name
+		// DNS label format: length(1) + label + ... + 0x00 (root)
+		hostBytes := []byte(*hostname)
+		fqdnData := make([]byte, 1+1+len(hostBytes)+1) // flags + length + hostname + root
+		fqdnData[0] = 0x00              // Flags: S=0, O=0, N=0 (server should update DNS)
+		fqdnData[1] = byte(len(hostBytes)) // Length of hostname label
+		copy(fqdnData[2:], hostBytes)   // Hostname
+		fqdnData[len(fqdnData)-1] = 0x00 // Root label (null terminator)
 
 		fqdnOption := layers.NewDHCPv6Option(39, fqdnData) // Option 39 = FQDN
 		dhcpv6.Options = append(dhcpv6.Options, fqdnOption)
