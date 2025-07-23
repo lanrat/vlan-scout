@@ -1,6 +1,8 @@
 FROM ghcr.io/goreleaser/goreleaser-cross:v1.24.5
 
-RUN dpkg --add-architecture arm64 && \
+# remove s390x since its not in the repos and causes apt to fail
+RUN dpkg --remove-architecture s390x && \
+    dpkg --add-architecture arm64 && \
     dpkg --add-architecture armhf && \
     apt-get update && \
     apt-get install -y wget unzip \
@@ -12,5 +14,3 @@ RUN dpkg --add-architecture arm64 && \
 RUN wget -O /tmp/npcap-sdk.zip https://npcap.com/dist/npcap-sdk-1.13.zip && \
     unzip /tmp/npcap-sdk.zip -d /opt/npcap-sdk && \
     rm /tmp/npcap-sdk.zip
-
-

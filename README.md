@@ -96,33 +96,33 @@ sudo ./vlan-scout -iface eth0 -dhcp -json
 ```text
 Usage of ./vlan-scout:
   -dhcp
-    	enable DHCP requests
+     enable DHCP requests
   -dhcp6
-    	enable IPv6 DHCP requests
+     enable IPv6 DHCP requests
   -hostname string
-    	hostname to use for dhcp requests (default "vlan-scout")
+     hostname to use for dhcp requests (default "vlan-scout")
   -iface string
-    	interface to test
+     interface to test
   -json
-    	output to json
+     output to json
   -list
-    	print interface list and exit
+     print interface list and exit
   -mac string
-    	mac address to use for dhcp requests (default "12:34:56:78:90:AB")
+     mac address to use for dhcp requests (default "12:34:56:78:90:AB")
   -print-packets
-    	print packets
+     print packets
   -ra
-    	request IPv6 router advertisements
+     request IPv6 router advertisements
   -random-mac
-    	use random mac address
+     use random mac address
   -timeout duration
-    	timeout to wait for responses
+     timeout to wait for responses
   -verbose
-    	print verbose output
+     print verbose output
   -version
-    	print version and exit
+     print version and exit
   -workers int
-    	number of parallel workers for VLAN scanning (default 10)
+     number of parallel workers for VLAN scanning (default 10)
 ```
 
 ## Output Examples
