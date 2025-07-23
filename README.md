@@ -41,8 +41,6 @@ Download the latest release from the [GitHub releases page](https://github.com/l
 
 ```bash
 sudo apt install -y libpcap-dev gcc
-git clone https://github.com/yourusername/vlan-scout.git
-cd vlan-scout
 make build
 ```
 
@@ -51,8 +49,6 @@ make build
 ```bash
 # Install dependencies with Homebrew
 brew install libpcap
-git clone https://github.com/yourusername/vlan-scout.git
-cd vlan-scout
 make build
 ```
 
@@ -60,7 +56,7 @@ make build
 
 ```bash
 # Requires WinPcap or Npcap installed
-go build -o vlan-scout.exe .
+go build
 ```
 
 ## Usage
