@@ -63,16 +63,18 @@ func NewPacketProcessor() *PacketProcessor {
 
 // HandlePacket processes captured network packets using pre-allocated layers for better performance
 func (pp *PacketProcessor) HandlePacket(data []byte) {
+	// Create a gopacket.Packet object if needed for detailed analysis
+	// This is more memory intensive but provides full packet access
+	if *printPackets || *verbose {
+		packet := gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Default)
+		log.Println(packet)
+	}
 
 	// Parse the packet data
 	err := pp.parser.DecodeLayers(data, &pp.decodedLayers)
 	if err != nil {
 		v("Partial decoding error: %v", err)
 		// Continue processing what was successfully decoded
-	}
-
-	if *printPackets {
-		log.Printf("Raw packet data: %+v", pp.decodedLayers)
 	}
 
 	// Check if we have VLAN tag

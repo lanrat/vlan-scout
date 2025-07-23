@@ -112,7 +112,7 @@ Usage of ./vlan-scout:
   -mac string
      mac address to use for dhcp requests (default "12:34:56:78:90:AB")
   -print-packets
-     print packets
+     print packets for debugging
   -ra
      request IPv6 router advertisements
   -random-mac
@@ -124,7 +124,7 @@ Usage of ./vlan-scout:
   -version
      print version and exit
   -vlans string
-     comma-separated VLAN list (e.g., 1,2,4,60-70,90)
+     comma-separated VLAN list (e.g., 1,2,4,60-70,90), defaults to all
   -workers int
      number of parallel workers for VLAN scanning (default 10)
 ```

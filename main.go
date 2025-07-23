@@ -24,18 +24,18 @@ var (
 	iface        = flag.String("iface", "", "interface to test")             // Network interface name
 	list         = flag.Bool("list", false, "print interface list and exit") // List available interfaces
 	dhcpv4       = flag.Bool("dhcp", false, "enable DHCP requests")
-	dhcpv6       = flag.Bool("dhcp6", false, "enable IPv6 DHCP requests")                          // Enable DHCP discovery
-	sendRA       = flag.Bool("ra", false, "request IPv6 router advertisements")                    // Enable IPv6 RA requests
-	macAddress   = flag.String("mac", "12:34:56:78:90:AB", "mac address to use for dhcp requests") // Source MAC
-	printPackets = flag.Bool("print-packets", false, "print packets")                              // Debug packet printing
-	hostname     = flag.String("hostname", "vlan-scout", "hostname to use for dhcp requests")      // DHCP hostname
-	verbose      = flag.Bool("verbose", false, "print verbose output")                             // Verbose logging
-	toJSON       = flag.Bool("json", false, "output to json")                                      // JSON output format
-	randomMAC    = flag.Bool("random-mac", false, "use random mac address")                        // Generate random MAC
-	showVersion  = flag.Bool("version", false, "print version and exit")                           // Show version
-	workers      = flag.Int("workers", 10, "number of parallel workers for VLAN scanning")         // Parallel workers
-	timeout      = flag.Duration("timeout", 0, "timeout to wait for responses")                    // Response timeout
-	vlanList     = flag.String("vlans", "", "comma-separated VLAN list (e.g., 1,2,4,60-70,90)")    // Specific VLANs to scan
+	dhcpv6       = flag.Bool("dhcp6", false, "enable IPv6 DHCP requests")                                        // Enable DHCP discovery
+	sendRA       = flag.Bool("ra", false, "request IPv6 router advertisements")                                  // Enable IPv6 RA requests
+	macAddress   = flag.String("mac", "12:34:56:78:90:AB", "mac address to use for dhcp requests")               // Source MAC
+	printPackets = flag.Bool("print-packets", false, "print packets for debugging")                              // Debug packet printing
+	hostname     = flag.String("hostname", "vlan-scout", "hostname to use for dhcp requests")                    // DHCP hostname
+	verbose      = flag.Bool("verbose", false, "print verbose output")                                           // Verbose logging
+	toJSON       = flag.Bool("json", false, "output to json")                                                    // JSON output format
+	randomMAC    = flag.Bool("random-mac", false, "use random mac address")                                      // Generate random MAC
+	showVersion  = flag.Bool("version", false, "print version and exit")                                         // Show version
+	workers      = flag.Int("workers", 10, "number of parallel workers for VLAN scanning")                       // Parallel workers
+	timeout      = flag.Duration("timeout", 0, "timeout to wait for responses")                                  // Response timeout
+	vlanList     = flag.String("vlans", "", "comma-separated VLAN list (e.g., 1,2,4,60-70,90), defaults to all") // Specific VLANs to scan
 )
 
 // VLAN ID constants defining the valid range (1-4094).
