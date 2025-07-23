@@ -27,7 +27,7 @@ The tool passively listens for network activity while optionally sending active 
 
 ### Pre-built Binaries
 
-Download the latest release from the GitHub releases page.
+Download the latest release from the [GitHub releases page](https://github.com/lanrat/vlan-scout/releases).
 
 ### Build from Source
 
