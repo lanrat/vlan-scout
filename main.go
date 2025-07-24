@@ -109,7 +109,7 @@ func start() {
 	// Start a goroutine to handle the received signals.
 	go func() {
 		sig := <-sigs // Block until a signal is received
-		fmt.Printf("\nReceived signal: %s. Performing graceful shutdown...\n", sig)
+		log.Printf("\nReceived signal: %s. Performing graceful shutdown...\n", sig)
 		signal.Stop(sigs) // allow a second signal to kill
 
 		// Perform cleanup or other actions here before exiting.
@@ -182,7 +182,7 @@ func start() {
 		log.Fatalf("SetBPFFilter Error: %v", err)
 	} else {
 		defer handle.Close()
-		fmt.Println("Program running. Press Ctrl+C to trigger graceful shutdown.")
+		log.Println("Program running. Press Ctrl+C to trigger graceful shutdown.")
 		go printStatus(done)
 
 		// Create PacketProcessor for better performance
