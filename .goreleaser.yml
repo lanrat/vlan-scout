@@ -55,6 +55,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w -X main.version={{.Version}}
+  
   - id: vlan-scout-darwin-amd64
     main: .
     binary: vlan-scout
@@ -70,6 +71,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w -X main.version={{.Version}}
+  
   - id: vlan-scout-darwin-arm64
     main: .
     binary: vlan-scout
@@ -85,6 +87,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w -X main.version={{.Version}}
+
   - id: vlan-scout-armhf
     main: .
     binary: vlan-scout
@@ -104,13 +107,42 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
 
+  - id: vlan-scout-arm64-musl
+    main: .
+    binary: vlan-scout-musl
+    goos:
+      - linux
+    goarch:
+      - arm64
+    env:
+      - CGO_ENABLED=1
+      - CC=aarch64-linux-musl-gcc
+      - CXX=aarch64-linux-musl-g++
+      - PKG_CONFIG_PATH=/opt/aarch64-linux-musl-cross/aarch64-linux-musl/lib/pkgconfig
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
 archives:
-  - # This single archive definition handles all OSes.
-    # The default format is 'tar.gz', which is used for linux and darwin.
+  - # Standard builds (excluding musl)
+    id: standard
+    builds:
+      - vlan-scout-amd64
+      - vlan-scout-arm64
+      - vlan-scout-windows
+      - vlan-scout-darwin-amd64
+      - vlan-scout-darwin-arm64
+      - vlan-scout-armhf
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        formats: ['zip'] # Override the format to 'zip' for Windows builds.
+        formats: ['zip']
+  - # Musl build for OpenWRT
+    id: musl
+    builds:
+      - vlan-scout-arm64-musl
+    name_template: "{{ .ProjectName }}-musl_{{ .Os }}_{{ .Arch }}"
 
 checksum:
   name_template: 'checksums.txt'
