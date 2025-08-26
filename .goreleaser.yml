@@ -141,7 +141,7 @@ nfpms:
 archives:
   - # Standard builds (excluding musl)
     id: standard
-    builds:
+    ids:
       - vlan-scout-amd64
       - vlan-scout-arm64
       - vlan-scout-windows
@@ -151,10 +151,11 @@ archives:
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        formats: ['zip']
+        formats: 
+          - zip
   - # Musl build for OpenWRT
     id: musl
-    builds:
+    ids:
       - vlan-scout-arm64-musl
     name_template: "{{ .ProjectName }}-musl_{{ .Os }}_{{ .Arch }}"
 

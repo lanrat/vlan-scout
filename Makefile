@@ -1,7 +1,7 @@
 
 BINARY_NAME=vlan-scout
-
-default: build
+default: ${BINARY_NAME}
+SOURCES := $(shell find . -type f -name "*.go")
 
 RELEASE_DEPS = fmt lint
 include release.mk
@@ -11,14 +11,13 @@ include release.mk
 # Here we set the `version` variable in the `main` package.
 LDFLAGS := -ldflags="-X main.version=${VERSION}"
 
-.PHONY: build
-build:
-	@echo "Building ${BINARY_NAME} with version: ${VERSION}"
-	go build ${LDFLAGS} -o ${BINARY_NAME} .
+${BINARY_NAME}: ${SOURCES} go.mod go.sum
+	@echo "Building $@ with version: ${VERSION}"
+	go build ${LDFLAGS} -o $@ .
 
 .PHONY: clean
 clean:
-	rm -f ${BINARY_NAME}
+	rm -rf ${BINARY_NAME} dist/
 
 .PHONY: docker-builder
 docker-builder:
@@ -27,11 +26,11 @@ docker-builder:
 .PHONY: goreleaser
 goreleaser: docker-builder lint
 	docker run --rm \
-		-v `pwd`:/go/src/ \
+		--user $(shell id -u):$(shell id -g) \
+		-v $(CURDIR):/go/src/ \
 		-w /go/src/ \
-		-e CGO_ENABLED=1 \
+		-e HOME=/tmp \
 		builder release --snapshot --clean
-
 
 .PHONY: update-deps
 update-deps:
