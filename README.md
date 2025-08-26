@@ -10,13 +10,15 @@ VLAN Scout monitors network traffic to discover VLAN configurations by analyzing
 - IPv6 Router Advertisements (SLAAC)
 - ARP replies
 - IPv6 Neighbor Discovery Protocol (NDP)
+- LLDP (Link Layer Discovery Protocol) packets
+- CDP (Cisco Discovery Protocol) packets
 - General IPv4/IPv6 traffic
 
 The tool passively listens for network activity while optionally sending active probes to trigger responses from network infrastructure.
 
 ## Features
 
-- **Multi-protocol Support**: IPv4 DHCP, IPv6 DHCPv6, IPv6 SLAAC, ARP, NDP
+- **Multi-protocol Support**: IPv4 DHCP, IPv6 DHCPv6, IPv6 SLAAC, ARP, NDP, LLDP, CDP
 - **High Performance**: Optimized packet processing with pre-allocated parsers
 - **Passive & Active Discovery**: Monitor existing traffic or send probes
 - **Comprehensive Output**: JSON and human-readable formats
@@ -75,7 +77,13 @@ sudo ./vlan-scout -list
 sudo ./vlan-scout -iface eth0
 ```
 
-**Active discovery with DHCP probes:**
+**Active discovery with all probes (shortcut):**
+
+```bash
+sudo ./vlan-scout -iface eth0 -all
+```
+
+**Active discovery with specific probes:**
 
 ```bash
 sudo ./vlan-scout -iface eth0 -dhcp -dhcp6 -ra
@@ -90,13 +98,15 @@ sudo ./vlan-scout -iface eth0 -dhcp -vlans 1,2,4,60-70,90
 **Output results in JSON format:**
 
 ```bash
-sudo ./vlan-scout -iface eth0 -dhcp -json
+sudo ./vlan-scout -iface eth0 -all -json
 ```
 
 ### Command Line Options
 
 ```text
 Usage of ./vlan-scout:
+  -all
+     enable all active discovery methods (dhcp + dhcp6 + ra)
   -dhcp
      enable DHCP requests
   -dhcp6
@@ -140,11 +150,14 @@ VLAN 100:
   ├─ IPv4 DHCP: 192.168.100.0/24 (GW: 192.168.100.1, Server: 192.168.100.1)
   ├─ IPv6 SLAAC: 2001:db8:100::/64 (GW: fe80::1)
   ├─ IPv4 Hosts: 192.168.100.10, 192.168.100.20
-  └─ IPv6 Hosts: 2001:db8:100::5
+  ├─ IPv6 Hosts: 2001:db8:100::5
+  ├─ LLDP Device: sw01.example.com (Port: GigabitEthernet1/0/1) [Bridge, Router]
+  └─ CDP Device: Router-01 (Port: FastEthernet0/1) [Router] - IPs: 192.168.100.1
 
 VLAN 200:
   ├─ IPv4 DHCP: 10.0.200.0/24 (GW: 10.0.200.1, Server: 10.0.200.5)
-  └─ IPv4 Hosts: 10.0.200.15, 10.0.200.30
+  ├─ IPv4 Hosts: 10.0.200.15, 10.0.200.30
+  └─ LLDP Device: switch-core.lan (Port: eth2) [Bridge] - IPs: 10.0.200.1
 ```
 
 ### JSON Format
@@ -156,7 +169,7 @@ VLAN 200:
       "ipv4_dhcp": {
         "ip": "192.168.100.26/24",
         "gateway": "192.168.100.1",
-        "dhcp_server": "192.168.100.1"
+        "server": "192.168.100.1"
       },
       "ipv6_slaac": {
         "ip": "2001:db8:100::/64", 
@@ -165,17 +178,38 @@ VLAN 200:
       "hosts": {
         "ipv4": ["192.168.100.10", "192.168.100.20"],
         "ipv6": ["2001:db8:100::5"]
-      }
+      },
+      "devices": [
+        {
+          "name": "sw01.example.com",
+          "port": "GigabitEthernet1/0/1", 
+          "type": "LLDP",
+          "description": "Cisco switch running IOS 15.2",
+          "mgmt_ips": ["192.168.100.1"],
+          "capabilities": ["Bridge", "Router"]
+        }
+      ]
     },
     "200": {
       "ipv4_dhcp": {
         "ip": "10.0.200.0/24",
         "gateway": "10.0.200.1",
-        "dhcp_server": "10.0.200.5"
+        "server": "10.0.200.5"
       },
       "hosts": {
         "ipv4": ["10.0.200.15", "10.0.200.30"]
-      }
+      },
+      "devices": [
+        {
+          "name": "Router-01",
+          "port": "FastEthernet0/1",
+          "type": "CDP", 
+          "description": "Cisco 2960 running IOS 12.2",
+          "mgmt_ips": ["10.0.200.1"],
+          "capabilities": ["Router"],
+          "native_vlan": 200
+        }
+      ]
     }
   }
 }
@@ -191,6 +225,8 @@ VLAN Scout captures and analyzes:
 - **Router Advertisements**: Discovers IPv6 prefixes and SLAAC configuration  
 - **ARP Traffic**: Identifies active IPv4 hosts
 - **NDP Traffic**: Discovers IPv6 neighbors and routers
+- **LLDP Packets**: Discovers network devices, their capabilities, and management IPs
+- **CDP Packets**: Discovers Cisco devices, platforms, and native VLAN information
 - **General IP Traffic**: Maps additional active hosts
 
 ### Active Discovery
@@ -206,7 +242,23 @@ When enabled, the tool sends:
 - Uses optimized `DecodingLayerParser` for high-performance packet analysis
 - Pre-allocated layer structs minimize memory allocations
 - Supports VLAN-tagged (802.1Q) traffic
-- Filters multicast traffic for NDP discovery
+- Filters multicast traffic for NDP and device discovery
+
+### Device Discovery
+
+VLAN Scout automatically discovers network infrastructure devices:
+
+- **LLDP (IEEE 802.1AB)**: Standard protocol supported by most modern switches and routers
+  - Device name, port identifiers, system description
+  - Management IP addresses (IPv4/IPv6)
+  - Device capabilities (Bridge, Router, WLAN-AP, etc.)
+  
+- **CDP (Cisco Discovery Protocol)**: Cisco proprietary protocol  
+  - Device name, platform, software version
+  - Port identifiers and native VLAN information
+  - Management IP addresses and device capabilities
+
+Both protocols operate at Layer 2 and work across VLAN boundaries, making them ideal for network topology discovery.
 
 ## Security Considerations
 

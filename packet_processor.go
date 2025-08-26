@@ -88,6 +88,9 @@ func (pp *PacketProcessor) HandlePacket(data []byte) {
 		}
 	}
 
+	// Handle LLDP and CDP packets separately as they need full packet parsing
+	pp.handleLLDPCDP(data, vlan)
+
 	if !hasVLAN {
 		return
 	}
@@ -335,4 +338,165 @@ func (pp *PacketProcessor) HandlePacket(data []byte) {
 			}
 		}
 	}
+}
+
+// handleLLDPCDP processes LLDP and CDP packets using full packet parsing
+func (pp *PacketProcessor) handleLLDPCDP(data []byte, vlan uint16) {
+	packet := gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Default)
+
+	// Handle LLDP packets
+	if lldpLayer := packet.Layer(layers.LayerTypeLinkLayerDiscovery); lldpLayer != nil {
+		lldp := lldpLayer.(*layers.LinkLayerDiscovery)
+		pp.processLLDPPacket(lldp, vlan)
+	}
+
+	// Handle CDP packets
+	if cdpLayer := packet.Layer(layers.LayerTypeCiscoDiscovery); cdpLayer != nil {
+		cdp := cdpLayer.(*layers.CiscoDiscovery)
+		pp.processCDPPacket(cdp, vlan)
+	}
+}
+
+// processLLDPPacket extracts device information from LLDP packets
+func (pp *PacketProcessor) processLLDPPacket(lldp *layers.LinkLayerDiscovery, vlan uint16) {
+	var deviceName, portID, systemDesc string
+	var mgmtIPs []net.IP
+	var capabilities []string
+
+	v("vlan %d LLDP packet from Chassis ID: %s", vlan, string(lldp.ChassisID.ID))
+
+	// Extract basic mandatory fields
+	deviceName = string(lldp.ChassisID.ID)
+	portID = string(lldp.PortID.ID)
+
+	// Process optional TLV values
+	for _, tlv := range lldp.Values {
+		switch tlv.Type {
+		case 5: // System Name TLV
+			if len(tlv.Value) > 0 {
+				deviceName = string(tlv.Value)
+			}
+		case 6: // System Description TLV
+			systemDesc = string(tlv.Value)
+		case 7: // System Capabilities TLV
+			if len(tlv.Value) >= 4 {
+				enabled := uint16(tlv.Value[2])<<8 | uint16(tlv.Value[3])
+				if enabled&0x0004 != 0 { // Bridge capability
+					capabilities = append(capabilities, "Bridge")
+				}
+				if enabled&0x0010 != 0 { // Router capability
+					capabilities = append(capabilities, "Router")
+				}
+				if enabled&0x0020 != 0 { // WLAN AP capability
+					capabilities = append(capabilities, "WLAN-AP")
+				}
+				if enabled&0x0040 != 0 { // Station capability
+					capabilities = append(capabilities, "Station")
+				}
+			}
+		case 8: // Management Address TLV
+			if len(tlv.Value) >= 9 {
+				addrLen := int(tlv.Value[0])
+				if addrLen >= 5 && len(tlv.Value) >= addrLen+1 {
+					addrType := tlv.Value[1]
+					if addrType == 1 && addrLen == 5 { // IPv4
+						ip := net.IP(tlv.Value[2:6])
+						mgmtIPs = append(mgmtIPs, ip)
+					} else if addrType == 2 && addrLen == 17 { // IPv6
+						ip := net.IP(tlv.Value[2:18])
+						mgmtIPs = append(mgmtIPs, ip)
+					}
+				}
+			}
+		}
+	}
+
+	v("vlan %d LLDP Device: %s, Port: %s, Desc: %s, Caps: %v", vlan, deviceName, portID, systemDesc, capabilities)
+
+	// Add device to findings
+	findings.AddLLDPDevice(vlan, deviceName, portID, systemDesc, mgmtIPs, capabilities)
+}
+
+// processCDPPacket extracts device information from CDP packets
+func (pp *PacketProcessor) processCDPPacket(cdp *layers.CiscoDiscovery, vlan uint16) {
+	var deviceName, portID, platform, version string
+	var mgmtIPs []net.IP
+	var nativeVLAN uint16
+	var capabilities []string
+
+	v("vlan %d CDP packet", vlan)
+
+	// Process CDP TLV values
+	for _, tlv := range cdp.Values {
+		switch tlv.Type {
+		case layers.CDPTLVDevID:
+			deviceName = string(tlv.Value)
+		case layers.CDPTLVPortID:
+			portID = string(tlv.Value)
+		case layers.CDPTLVPlatform:
+			platform = string(tlv.Value)
+		case layers.CDPTLVVersion:
+			version = string(tlv.Value)
+		case layers.CDPTLVAddress:
+			// CDP addresses are complex TLV structures
+			if len(tlv.Value) >= 8 {
+				numAddrs := uint32(tlv.Value[0])<<24 | uint32(tlv.Value[1])<<16 | uint32(tlv.Value[2])<<8 | uint32(tlv.Value[3])
+				offset := 4
+				for i := uint32(0); i < numAddrs && offset < len(tlv.Value); i++ {
+					if offset+8 <= len(tlv.Value) {
+						// Skip protocol type and length fields
+						addrLen := int(tlv.Value[offset+7])
+						offset += 8
+						if offset+addrLen <= len(tlv.Value) && addrLen == 4 {
+							// IPv4 address
+							ip := net.IP(tlv.Value[offset : offset+4])
+							mgmtIPs = append(mgmtIPs, ip)
+						}
+						offset += addrLen
+					} else {
+						break
+					}
+				}
+			}
+		case layers.CDPTLVCapabilities:
+			if len(tlv.Value) >= 4 {
+				caps := uint32(tlv.Value[0])<<24 | uint32(tlv.Value[1])<<16 | uint32(tlv.Value[2])<<8 | uint32(tlv.Value[3])
+				if caps&0x01 != 0 {
+					capabilities = append(capabilities, "Router")
+				}
+				if caps&0x02 != 0 {
+					capabilities = append(capabilities, "Bridge")
+				}
+				if caps&0x04 != 0 {
+					capabilities = append(capabilities, "Source-Route-Bridge")
+				}
+				if caps&0x08 != 0 {
+					capabilities = append(capabilities, "Switch")
+				}
+				if caps&0x10 != 0 {
+					capabilities = append(capabilities, "Host")
+				}
+				if caps&0x20 != 0 {
+					capabilities = append(capabilities, "IGMP")
+				}
+				if caps&0x40 != 0 {
+					capabilities = append(capabilities, "Repeater")
+				}
+			}
+		case layers.CDPTLVNativeVLAN:
+			if len(tlv.Value) >= 2 {
+				nativeVLAN = uint16(tlv.Value[0])<<8 | uint16(tlv.Value[1])
+			}
+		}
+	}
+
+	systemDesc := platform
+	if version != "" {
+		systemDesc += " running " + version
+	}
+
+	v("vlan %d CDP Device: %s, Port: %s, Platform: %s, Native VLAN: %d, Caps: %v", vlan, deviceName, portID, platform, nativeVLAN, capabilities)
+
+	// Add device to findings
+	findings.AddCDPDevice(vlan, deviceName, portID, systemDesc, mgmtIPs, capabilities, nativeVLAN)
 }

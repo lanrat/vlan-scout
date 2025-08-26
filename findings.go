@@ -28,6 +28,17 @@ type IPv6SLAAC struct {
 	Gateway net.IP    `json:"gateway"` // IPv6 gateway IP
 }
 
+// DeviceInfo represents a discovered network device from LLDP or CDP.
+type DeviceInfo struct {
+	Name         string   `json:"name"`                  // Device name/ID
+	Port         string   `json:"port"`                  // Port identifier
+	Type         string   `json:"type"`                  // Discovery protocol (LLDP/CDP)
+	Description  string   `json:"description"`           // System description
+	MgmtIPs      []string `json:"mgmt_ips"`              // Management IP addresses
+	Capabilities []string `json:"capabilities"`          // Device capabilities (Router, Bridge, etc.)
+	NativeVLAN   uint16   `json:"native_vlan,omitempty"` // Native VLAN (CDP only)
+}
+
 type Hosts struct {
 	IPv4      []string        `json:"ipv4"`
 	IPv6      []string        `json:"ipv6"`
@@ -38,11 +49,12 @@ type Hosts struct {
 
 // VlanFinding contains all discovered information for a specific VLAN.
 type VlanFinding struct {
-	Vlan   uint16        `json:"-"`          // VLAN ID
-	IPv4   *DHCPResponse `json:"ipv4_dhcp"`  // IPv4 DHCP configuration
-	IPv6   *DHCPResponse `json:"ipv6_dhcp"`  // IPv6 DHCP configuration
-	IPv6RA *IPv6SLAAC    `json:"ipv6_slaac"` // IPv6 router advertisement
-	Hosts  Hosts         `json:"hosts"`
+	Vlan    uint16        `json:"-"`          // VLAN ID
+	IPv4    *DHCPResponse `json:"ipv4_dhcp"`  // IPv4 DHCP configuration
+	IPv6    *DHCPResponse `json:"ipv6_dhcp"`  // IPv6 DHCP configuration
+	IPv6RA  *IPv6SLAAC    `json:"ipv6_slaac"` // IPv6 router advertisement
+	Hosts   Hosts         `json:"hosts"`
+	Devices []DeviceInfo  `json:"devices"` // Discovered network devices
 }
 
 // VlanList returns a sorted list of all VLAN IDs that have findings.
@@ -74,6 +86,7 @@ func (f Findings) StatusString() string {
 	for _, v := range f.VlanList() {
 		vf := f.Vlans[uint16(v)]
 		totalHosts := len(vf.Hosts.HostsIPv4) + len(vf.Hosts.HostsIPv6)
+		totalDevices := len(vf.Devices)
 
 		// Build service list
 		services := make([]string, 0, 2)
@@ -94,8 +107,18 @@ func (f Findings) StatusString() string {
 			if totalHosts > 0 {
 				vlanDesc += fmt.Sprintf("+%dhosts", totalHosts)
 			}
-		} else if totalHosts > 0 {
-			vlanDesc += fmt.Sprintf("%dhosts", totalHosts)
+			if totalDevices > 0 {
+				vlanDesc += fmt.Sprintf("+%ddevs", totalDevices)
+			}
+		} else if totalHosts > 0 || totalDevices > 0 {
+			var parts []string
+			if totalHosts > 0 {
+				parts = append(parts, fmt.Sprintf("%dhosts", totalHosts))
+			}
+			if totalDevices > 0 {
+				parts = append(parts, fmt.Sprintf("%ddevs", totalDevices))
+			}
+			vlanDesc += strings.Join(parts, "+")
 		} else {
 			vlanDesc += "detected"
 		}
@@ -108,12 +131,13 @@ func (f Findings) StatusString() string {
 }
 
 // condensedStatusString returns a summary format for many VLANs.
-// Format: "Found 15 VLANs (8 with DHCP, 5 with IPv6, 120 total hosts)"
+// Format: "Found 15 VLANs (8 with DHCP, 5 with IPv6, 120 total hosts, 25 devices)"
 func (f Findings) condensedStatusString() string {
 	vlanCount := len(f.Vlans)
 	dhcpCount := 0
 	ipv6Count := 0
 	totalHosts := 0
+	totalDevices := 0
 
 	for _, vf := range f.Vlans {
 		if vf.IPv4 != nil {
@@ -126,10 +150,11 @@ func (f Findings) condensedStatusString() string {
 			ipv6Count++
 		}
 		totalHosts += len(vf.Hosts.HostsIPv4) + len(vf.Hosts.HostsIPv6)
+		totalDevices += len(vf.Devices)
 	}
 
 	// Build summary parts
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 4)
 	if dhcpCount > 0 {
 		parts = append(parts, fmt.Sprintf("%d with DHCP", dhcpCount))
 	}
@@ -138,6 +163,9 @@ func (f Findings) condensedStatusString() string {
 	}
 	if totalHosts > 0 {
 		parts = append(parts, fmt.Sprintf("%d total hosts", totalHosts))
+	}
+	if totalDevices > 0 {
+		parts = append(parts, fmt.Sprintf("%d devices", totalDevices))
 	}
 
 	result := fmt.Sprintf("Found %d VLANs", vlanCount)
@@ -262,6 +290,63 @@ func (f Findings) AddIPv6SLAAC(vlan uint16, ip net.IPNet, gateway net.IP) {
 	}
 }
 
+// AddLLDPDevice adds an LLDP-discovered device to the specified VLAN's findings.
+func (f Findings) AddLLDPDevice(vlan uint16, name, port, description string, mgmtIPs []net.IP, capabilities []string) {
+	f.checkVlan(vlan)
+
+	// Convert IP addresses to strings
+	mgmtIPStrings := make([]string, len(mgmtIPs))
+	for i, ip := range mgmtIPs {
+		mgmtIPStrings[i] = ip.String()
+		// Also add to hosts
+		if ip.To4() != nil {
+			f.AddIPv4Host(vlan, ip)
+		} else {
+			f.AddIPv6Host(vlan, ip)
+		}
+	}
+
+	device := DeviceInfo{
+		Name:         name,
+		Port:         port,
+		Type:         "LLDP",
+		Description:  description,
+		MgmtIPs:      mgmtIPStrings,
+		Capabilities: capabilities,
+	}
+
+	f.Vlans[vlan].Devices = append(f.Vlans[vlan].Devices, device)
+}
+
+// AddCDPDevice adds a CDP-discovered device to the specified VLAN's findings.
+func (f Findings) AddCDPDevice(vlan uint16, name, port, description string, mgmtIPs []net.IP, capabilities []string, nativeVLAN uint16) {
+	f.checkVlan(vlan)
+
+	// Convert IP addresses to strings
+	mgmtIPStrings := make([]string, len(mgmtIPs))
+	for i, ip := range mgmtIPs {
+		mgmtIPStrings[i] = ip.String()
+		// Also add to hosts
+		if ip.To4() != nil {
+			f.AddIPv4Host(vlan, ip)
+		} else {
+			f.AddIPv6Host(vlan, ip)
+		}
+	}
+
+	device := DeviceInfo{
+		Name:         name,
+		Port:         port,
+		Type:         "CDP",
+		Description:  description,
+		MgmtIPs:      mgmtIPStrings,
+		Capabilities: capabilities,
+		NativeVLAN:   nativeVLAN,
+	}
+
+	f.Vlans[vlan].Devices = append(f.Vlans[vlan].Devices, device)
+}
+
 // String returns a formatted string representation of the VLAN finding.
 func (v *VlanFinding) String() string {
 	out := fmt.Sprintf("VLAN %d:\n", v.Vlan)
@@ -304,6 +389,23 @@ func (v *VlanFinding) String() string {
 	if len(ipv6Hosts) > 0 {
 		sort.Strings(ipv6Hosts)
 		items = append(items, fmt.Sprintf("IPv6 Hosts: %s", strings.Join(ipv6Hosts, ", ")))
+	}
+
+	// Add discovered devices
+	if len(v.Devices) > 0 {
+		for _, device := range v.Devices {
+			deviceDesc := fmt.Sprintf("%s Device: %s", device.Type, device.Name)
+			if device.Port != "" {
+				deviceDesc += fmt.Sprintf(" (Port: %s)", device.Port)
+			}
+			if len(device.Capabilities) > 0 {
+				deviceDesc += fmt.Sprintf(" [%s]", strings.Join(device.Capabilities, ", "))
+			}
+			if len(device.MgmtIPs) > 0 {
+				deviceDesc += fmt.Sprintf(" - IPs: %s", strings.Join(device.MgmtIPs, ", "))
+			}
+			items = append(items, deviceDesc)
+		}
 	}
 
 	// Add items with proper tree formatting

@@ -36,6 +36,7 @@ var (
 	workers      = flag.Int("workers", 10, "number of parallel workers for VLAN scanning")                       // Parallel workers
 	timeout      = flag.Duration("timeout", 0, "timeout to wait for responses")                                  // Response timeout
 	vlanList     = flag.String("vlans", "", "comma-separated VLAN list (e.g., 1,2,4,60-70,90), defaults to all") // Specific VLANs to scan
+	all          = flag.Bool("all", false, "enable all active discovery methods (dhcp + dhcp6 + ra)")            // Enable all discovery methods
 )
 
 // VLAN ID constants defining the valid range (1-4094).
@@ -59,6 +60,14 @@ var (
 // It parses command line arguments and initiates the discovery process.
 func main() {
 	flag.Parse()
+
+	// Handle -all flag as shortcut for all active discovery methods
+	if *all {
+		*dhcpv4 = true
+		*dhcpv6 = true
+		*sendRA = true
+	}
+
 	active = *dhcpv4 || *sendRA || *dhcpv6
 
 	if *showVersion {
@@ -166,7 +175,7 @@ func start() {
 		}
 	}()
 
-	filter := fmt.Sprintf("vlan or ether host %s or ether multicast", *macAddress)
+	filter := fmt.Sprintf("vlan or ether host %s or ether multicast or ether dst 01:80:c2:00:00:0e or ether dst 01:00:0c:cc:cc:cc", *macAddress)
 	v("listening for packets on %s with filter '%s'", *iface, filter)
 	if handle, err := pcap.OpenLive(*iface, int32(65535), true, pcap.BlockForever); err != nil {
 		// The pcap library doesn't export specific error types for many

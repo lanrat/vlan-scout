@@ -8,6 +8,7 @@
         "archlinux",
         "armhf",
         "Buildx",
+        "CDPTLV",
         "CFLAGS",
         "dhcpv",
         "dhosts",
@@ -27,9 +28,12 @@
         "IAPREFIX",
         "icmpv",
         "iface",
+        "IGMP",
         "ldflags",
         "libpcap",
         "LLDP",
+        "LLDPCDP",
+        "mgmt",
         "nfpms",
         "Npcap",
         "slaac",
@@ -37,7 +41,8 @@
         "SNMP",
         "strs",
         "trimpath",
-        "waitgroup"
+        "waitgroup",
+        "WLAN"
     ],
     "ignoreWords": [],
     "import": []
