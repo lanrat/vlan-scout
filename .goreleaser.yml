@@ -124,6 +124,21 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
 
+
+nfpms:
+  - id: vlan-scout
+    # Package info
+    maintainer: lanrat
+    homepage: https://github.com/lanrat/vlan-scout
+    description: |-
+      network vlan enumeration tool
+    # Supported formats
+    formats:
+      - deb
+      - rpm
+      - apk
+      - archlinux
+
 archives:
   - # Standard builds (excluding musl)
     id: standard
