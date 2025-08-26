@@ -28,8 +28,8 @@ jobs:
           context: ./builder
           tags: builder:latest
           load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=builder
+          cache-to: type=gha,mode=max,scope=builder
 
       - name: Build with GoReleaser
         run: make goreleaser
