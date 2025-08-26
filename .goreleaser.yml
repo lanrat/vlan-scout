@@ -124,7 +124,6 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
 
-
 nfpms:
   - id: vlan-scout
     # Package info

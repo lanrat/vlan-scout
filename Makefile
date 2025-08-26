@@ -1,4 +1,7 @@
+
 BINARY_NAME=vlan-scout
+
+default: build
 
 RELEASE_DEPS = fmt lint
 include release.mk
@@ -7,8 +10,6 @@ include release.mk
 # string variable in the target package at build time.
 # Here we set the `version` variable in the `main` package.
 LDFLAGS := -ldflags="-X main.version=${VERSION}"
-
-default: build
 
 .PHONY: build
 build:
@@ -23,8 +24,8 @@ clean:
 docker-builder:
 	docker build -t builder builder/
 
-.PHONY: release
-release: docker-builder lint
+.PHONY: goreleaser
+goreleaser: docker-builder lint
 	docker run --rm \
 		-v `pwd`:/go/src/ \
 		-w /go/src/ \
@@ -49,3 +50,6 @@ lint:
 .PHONY: test
 test:
 	go test ./...
+
+fmt:
+	go fmt ./...

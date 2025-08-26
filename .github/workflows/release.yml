@@ -32,7 +32,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build with GoReleaser
-        run: make release-gh
+        run: make goreleaser
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
