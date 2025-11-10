@@ -11,8 +11,10 @@ RUN dpkg --remove-architecture s390x && \
     mingw-w64 gcc-mingw-w64-x86-64 \
     gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
 
+#ENV aarch64_linux_musl="https://musl.cc/aarch64-linux-musl-cross.tgz"
+ENV aarch64_linux_musl="https://github.com/troglobit/misc/releases/download/11-20211120/aarch64-linux-musl-cross.tgz"
 # Install musl cross compiler for OpenWRT compatibility
-RUN wget https://musl.cc/aarch64-linux-musl-cross.tgz && \
+RUN wget "$aarch64_linux_musl" && \
     tar -xzf aarch64-linux-musl-cross.tgz -C /opt && \
     rm aarch64-linux-musl-cross.tgz
 ENV PATH="/opt/aarch64-linux-musl-cross/bin:${PATH}"
