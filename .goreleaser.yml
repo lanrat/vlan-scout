@@ -3,8 +3,8 @@ version: 2
 project_name: vlan-scout
 
 env:
-  - LIBS_DIR={{ .Env.PWD }}/.libs
-  - NPCAP_DIR={{ .Env.PWD }}/.libs/npcap-sdk
+  - LIBS_DIR=.libs
+  - NPCAP_DIR=.libs/npcap-sdk
 
 before:
   hooks:
@@ -160,13 +160,13 @@ archives:
       - vlan-scout-amd64
       - vlan-scout-arm64
       - vlan-scout-windows
-      - vlan-scout-darwin-amd64
-      - vlan-scout-darwin-arm64
+      # - vlan-scout-darwin-amd64
+      # - vlan-scout-darwin-arm64
       - vlan-scout-armhf
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        formats: 
+        formats:
           - zip
   - # Musl build for OpenWRT
     id: musl
