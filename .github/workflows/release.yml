@@ -53,8 +53,10 @@ jobs:
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
-          version: latest
+          version: '~> v2'
           args: release --clean ${{ github.event.inputs.snapshot == 'true' && '--snapshot' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LIBS_DIR: ${{ github.workspace }}/.libs
+          NPCAP_DIR: ${{ github.workspace }}/.libs/npcap-sdk
 

@@ -2,10 +2,6 @@
 version: 2
 project_name: vlan-scout
 
-env:
-  - LIBS_DIR=.libs
-  - NPCAP_DIR=.libs/npcap-sdk
-
 before:
   hooks:
     - go mod tidy

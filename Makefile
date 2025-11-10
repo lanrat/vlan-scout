@@ -25,7 +25,7 @@ setup-build-deps:
 
 .PHONY: goreleaser
 goreleaser: lint setup-build-deps
-	goreleaser release --snapshot --clean
+	LIBS_DIR=$(PWD)/.libs NPCAP_DIR=$(PWD)/.libs/npcap-sdk goreleaser release --snapshot --clean
 
 .PHONY: update-deps
 update-deps:
