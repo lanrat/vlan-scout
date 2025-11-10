@@ -35,31 +35,35 @@ Download the latest release from the [GitHub releases page](https://github.com/l
 
 **Prerequisites:**
 
-- Go 1.20 or later
-- GCC compiler
-- libpcap development headers
+- Go 1.23 or later
+- libpcap development headers (for native build)
 
 **Ubuntu/Debian:**
 
 ```bash
-sudo apt install -y libpcap-dev gcc
-make build
+sudo apt install -y libpcap-dev
+go build
 ```
 
 **macOS:**
 
 ```bash
-# Install dependencies with Homebrew
 brew install libpcap
-make build
+go build
 ```
 
 **Windows:**
 
 ```bash
-# Requires WinPcap or Npcap installed
+# Requires Npcap installed
 go build
 ```
+
+### Cross-Platform Releases
+
+Cross-platform builds for Linux (amd64/arm64/armhf/musl) and Windows (amd64) are automatically built and released via GitHub Actions using Zig for cross-compilation.
+
+**For local development**, use `go build` to build for your native platform. Cross-compilation with CGO dependencies requires Zig and is not recommended for local builds.
 
 ## Usage
 

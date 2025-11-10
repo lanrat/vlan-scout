@@ -17,20 +17,15 @@ ${BINARY_NAME}: ${SOURCES} go.mod go.sum
 
 .PHONY: clean
 clean:
-	rm -rf ${BINARY_NAME} dist/
+	rm -rf ${BINARY_NAME} dist/ .libs/
 
-.PHONY: docker-builder
-docker-builder:
-	docker build -t builder builder/
+.PHONY: setup-build-deps
+setup-build-deps:
+	./scripts/setup-build-deps.sh
 
 .PHONY: goreleaser
-goreleaser: docker-builder lint
-	docker run --rm \
-		--user $(shell id -u):$(shell id -g) \
-		-v $(CURDIR):/go/src/ \
-		-w /go/src/ \
-		-e HOME=/tmp \
-		builder release --snapshot --clean
+goreleaser: lint setup-build-deps
+	goreleaser release --snapshot --clean
 
 .PHONY: update-deps
 update-deps:

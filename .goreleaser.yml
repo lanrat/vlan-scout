@@ -2,6 +2,10 @@
 version: 2
 project_name: vlan-scout
 
+env:
+  - LIBS_DIR={{ .Env.PWD }}/.libs
+  - NPCAP_DIR={{ .Env.PWD }}/.libs/npcap-sdk
+
 before:
   hooks:
     - go mod tidy
@@ -16,6 +20,10 @@ builds:
       - amd64
     env:
       - CGO_ENABLED=1
+      - CC=zig cc -target x86_64-linux-gnu
+      - CXX=zig c++ -target x86_64-linux-gnu
+      - CGO_CFLAGS=-I{{ .Env.LIBS_DIR }}/libpcap-x86_64-linux-gnu
+      - CGO_LDFLAGS=-L{{ .Env.LIBS_DIR }}/libpcap-x86_64-linux-gnu
     flags:
       - -trimpath
     ldflags:
@@ -30,14 +38,15 @@ builds:
       - arm64
     env:
       - CGO_ENABLED=1
-      - CC=aarch64-linux-gnu-gcc
-      - CXX=aarch64-linux-gnu-g++
-      - PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+      - CC=zig cc -target aarch64-linux-gnu
+      - CXX=zig c++ -target aarch64-linux-gnu
+      - CGO_CFLAGS=-I{{ .Env.LIBS_DIR }}/libpcap-aarch64-linux-gnu
+      - CGO_LDFLAGS=-L{{ .Env.LIBS_DIR }}/libpcap-aarch64-linux-gnu
     flags:
       - -trimpath
     ldflags:
       - -s -w -X main.version={{.Version}}
-      
+
   - id: vlan-scout-windows
     main: .
     binary: vlan-scout
@@ -47,46 +56,50 @@ builds:
       - amd64
     env:
       - CGO_ENABLED=1
-      - CC=x86_64-w64-mingw32-gcc
-      - CXX=x86_64-w64-mingw32-g++
-      - CGO_CFLAGS=-I/opt/npcap-sdk/Include
-      - CGO_LDFLAGS=-L/opt/npcap-sdk/Lib/x64
+      - CC=zig cc -target x86_64-windows-gnu
+      - CXX=zig c++ -target x86_64-windows-gnu
+      - CGO_CFLAGS=-I{{ .Env.NPCAP_DIR }}/Include
+      - CGO_LDFLAGS=-L{{ .Env.NPCAP_DIR }}/Lib/x64
     flags:
       - -trimpath
     ldflags:
       - -s -w -X main.version={{.Version}}
-  
-  - id: vlan-scout-darwin-amd64
-    main: .
-    binary: vlan-scout
-    goos:
-      - darwin
-    goarch:
-      - amd64
-    env:
-      - CGO_ENABLED=1
-      - CC=o64-clang	
-      - CXX=o64-clang++
-    flags:
-      - -trimpath
-    ldflags:
-      - -s -w -X main.version={{.Version}}
-  
-  - id: vlan-scout-darwin-arm64
-    main: .
-    binary: vlan-scout
-    goos:
-      - darwin
-    goarch:
-      - arm64
-    env:
-      - CGO_ENABLED=1
-      - CC=oa64-clang
-      - CXX=oa64-clang++
-    flags:
-      - -trimpath
-    ldflags:
-      - -s -w -X main.version={{.Version}}
+
+  # - id: vlan-scout-darwin-amd64
+  #   main: .
+  #   binary: vlan-scout
+  #   goos:
+  #     - darwin
+  #   goarch:
+  #     - amd64
+  #   env:
+  #     - CGO_ENABLED=1
+  #     - CC=zig cc -target x86_64-macos
+  #     - CXX=zig c++ -target x86_64-macos
+  #     - CGO_CFLAGS=-I{{ .Env.LIBS_DIR }}/libpcap-x86_64-macos
+  #     - CGO_LDFLAGS={{ .Env.LIBS_DIR }}/libpcap-x86_64-macos/libpcap.a
+  #   flags:
+  #     - -trimpath
+  #   ldflags:
+  #     - -s -w -X main.version={{.Version}} -extldflags=-static-libgcc
+
+  # - id: vlan-scout-darwin-arm64
+  #   main: .
+  #   binary: vlan-scout
+  #   goos:
+  #     - darwin
+  #   goarch:
+  #     - arm64
+  #   env:
+  #     - CGO_ENABLED=1
+  #     - CC=zig cc -target aarch64-macos
+  #     - CXX=zig c++ -target aarch64-macos
+  #     - CGO_CFLAGS=-I{{ .Env.LIBS_DIR }}/libpcap-aarch64-macos
+  #     - CGO_LDFLAGS={{ .Env.LIBS_DIR }}/libpcap-aarch64-macos/libpcap.a
+  #   flags:
+  #     - -trimpath
+  #   ldflags:
+  #     - -s -w -X main.version={{.Version}} -extldflags=-static-libgcc
 
   - id: vlan-scout-armhf
     main: .
@@ -96,12 +109,13 @@ builds:
     goarch:
       - arm
     goarm:
-      - 7
+      - "7"
     env:
       - CGO_ENABLED=1
-      - CC=arm-linux-gnueabihf-gcc
-      - CXX=arm-linux-gnueabihf-g++
-      - PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig
+      - CC=zig cc -target arm-linux-gnueabihf
+      - CXX=zig c++ -target arm-linux-gnueabihf
+      - CGO_CFLAGS=-I{{ .Env.LIBS_DIR }}/libpcap-arm-linux-gnueabihf
+      - CGO_LDFLAGS=-L{{ .Env.LIBS_DIR }}/libpcap-arm-linux-gnueabihf
     flags:
       - -trimpath
     ldflags:
@@ -116,9 +130,10 @@ builds:
       - arm64
     env:
       - CGO_ENABLED=1
-      - CC=aarch64-linux-musl-gcc
-      - CXX=aarch64-linux-musl-g++
-      - PKG_CONFIG_PATH=/opt/aarch64-linux-musl-cross/aarch64-linux-musl/lib/pkgconfig
+      - CC=zig cc -target aarch64-linux-musl
+      - CXX=zig c++ -target aarch64-linux-musl
+      - CGO_CFLAGS=-I{{ .Env.LIBS_DIR }}/libpcap-aarch64-linux-musl
+      - CGO_LDFLAGS=-L{{ .Env.LIBS_DIR }}/libpcap-aarch64-linux-musl
     flags:
       - -trimpath
     ldflags:

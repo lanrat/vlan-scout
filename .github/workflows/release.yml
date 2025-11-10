@@ -5,6 +5,12 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      snapshot:
+        description: 'Create snapshot release (no publish)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -12,27 +18,34 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and cache Docker builder image
-        uses: docker/build-push-action@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          context: ./builder
-          tags: builder:latest
-          load: true
-          cache-from: type=gha,scope=builder
-          cache-to: type=gha,mode=max,scope=builder
+          go-version-file: 'go.mod'
 
-      - name: Build with GoReleaser
-        run: make goreleaser
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.13.0
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y flex bison
+
+      - name: Setup build dependencies
+        run: ./scripts/setup-build-deps.sh
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: release --clean ${{ github.event.inputs.snapshot == 'true' && '--snapshot' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
