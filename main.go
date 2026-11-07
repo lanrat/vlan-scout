@@ -20,24 +20,65 @@ import (
 
 // Command line flags for configuring the VLAN discovery tool.
 var (
-	version      = "dev"                                                     // Version string, set at build time
-	iface        = flag.String("iface", "", "interface to test")             // Network interface name
-	list         = flag.Bool("list", false, "print interface list and exit") // List available interfaces
-	dhcpv4       = flag.Bool("dhcp", false, "enable DHCP requests")
-	dhcpv6       = flag.Bool("dhcp6", false, "enable IPv6 DHCP requests")                                        // Enable DHCP discovery
-	sendRA       = flag.Bool("ra", false, "request IPv6 router advertisements")                                  // Enable IPv6 RA requests
-	macAddress   = flag.String("mac", "12:34:56:78:90:AB", "mac address to use for dhcp requests")               // Source MAC
-	printPackets = flag.Bool("print-packets", false, "print packets for debugging")                              // Debug packet printing
-	hostname     = flag.String("hostname", "vlan-scout", "hostname to use for dhcp requests")                    // DHCP hostname
-	verbose      = flag.Bool("verbose", false, "print verbose output")                                           // Verbose logging
-	toJSON       = flag.Bool("json", false, "output to json")                                                    // JSON output format
-	randomMAC    = flag.Bool("random-mac", false, "use random mac address")                                      // Generate random MAC
-	showVersion  = flag.Bool("version", false, "print version and exit")                                         // Show version
-	workers      = flag.Int("workers", 10, "number of parallel workers for VLAN scanning")                       // Parallel workers
-	timeout      = flag.Duration("timeout", 0, "timeout to wait for responses")                                  // Response timeout
-	vlanList     = flag.String("vlans", "", "comma-separated VLAN list (e.g., 1,2,4,60-70,90), defaults to all") // Specific VLANs to scan
-	all          = flag.Bool("all", false, "enable all active discovery methods (dhcp + dhcp6 + ra)")            // Enable all discovery methods
+	version      = "dev" // Version string, set at build time
+	iface        = flag.String("iface", "", "interface to capture on (required to scan)")
+	list         = flag.Bool("list", false, "list interfaces and exit")
+	dhcpv4       = flag.Bool("dhcp", false, "send DHCPv4 discovers")
+	dhcpv6       = flag.Bool("dhcp6", false, "send DHCPv6 solicits (also sends router solicitations)")
+	sendRA       = flag.Bool("ra", false, "send IPv6 router solicitations")
+	macAddress   = flag.String("mac", "12:34:56:78:90:AB", "unicast source MAC for probes")
+	printPackets = flag.Bool("print-packets", false, "print each captured packet")
+	hostname     = flag.String("hostname", "vlan-scout", "hostname option sent in DHCP requests")
+	verbose      = flag.Bool("verbose", false, "print probe and capture progress")
+	toJSON       = flag.Bool("json", false, "print discoveries as JSON")
+	randomMAC    = flag.Bool("random-mac", false, "use a random unicast locally administered MAC instead of -mac")
+	showVersion  = flag.Bool("version", false, "print the version and exit")
+	workers      = flag.Int("workers", 10, "parallel workers for active VLAN probes")
+	timeout      = flag.Duration("timeout", 0, "how long to listen (0 waits until Ctrl+C, or 3s after active probes finish)")
+	vlanList     = flag.String("vlans", "", "VLAN IDs and ranges to probe, such as 1,2,4,60-70 (default: all)")
+	all          = flag.Bool("all", false, "send DHCPv4, DHCPv6, and router solicitations")
 )
+
+func init() {
+	flag.Usage = usage
+}
+
+// usage prints how to run vlan-scout. The flag package calls it for -h and
+// for unknown flags.
+func usage() {
+	out := flag.CommandLine.Output()
+	name := os.Args[0]
+	fmt.Fprintf(out, `vlan-scout discovers VLANs on an interface. It listens for DHCP, router advertisements, ARP, NDP, LLDP, and CDP, and can send probes to draw out quiet networks.
+
+Usage:
+  %s -iface <name> [options]
+  %s -list
+  %s -version
+
+Opening the interface requires permission to capture packets. On macOS and Linux, run it with sudo.
+
+With no probe flags, vlan-scout only listens until Ctrl+C.
+-all sends DHCPv4 discovers, DHCPv6 solicits, and IPv6 router solicitations.
+-dhcp6 also sends router solicitations.
+Omit -vlans to probe the untagged network and VLAN IDs 1-4094. After active probes finish, vlan-scout waits 3s for replies unless -timeout is set.
+
+Examples:
+  sudo %s -list
+  sudo %s -iface en0
+  sudo %s -iface en0 -all -random-mac -hostname computer101
+  sudo %s -iface en0 -dhcp -vlans 1,10,20-30
+
+Options:
+`, name, name, name, name, name, name, name)
+	flag.PrintDefaults()
+}
+
+// usageError reports a startup mistake and prints usage.
+func usageError(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "error: "+format+"\n\n", args...)
+	flag.Usage()
+	os.Exit(2)
+}
 
 // VLAN ID constants defining the valid range (1-4094).
 const (
@@ -61,14 +102,9 @@ var (
 func main() {
 	flag.Parse()
 
-	// Handle -all flag as shortcut for all active discovery methods
-	if *all {
-		*dhcpv4 = true
-		*dhcpv6 = true
-		*sendRA = true
+	if flag.NArg() > 0 {
+		usageError("unexpected argument %q", flag.Arg(0))
 	}
-
-	active = *dhcpv4 || *sendRA || *dhcpv6
 
 	if *showVersion {
 		fmt.Println(version)
@@ -80,19 +116,37 @@ func main() {
 		return
 	}
 
+	if len(*iface) == 0 {
+		usageError("-iface is required")
+	}
+
+	// Handle -all flag as shortcut for all active discovery methods
+	if *all {
+		*dhcpv4 = true
+		*dhcpv6 = true
+		*sendRA = true
+	}
+
+	active = *dhcpv4 || *sendRA || *dhcpv6
+
 	if *dhcpv6 && !*sendRA {
 		*sendRA = true
 		v("DHCPv6 requires sending Router Advertisements, enabling...")
 	}
 	if *randomMAC {
 		*macAddress = GenerateRandomMAC()
-		v("Using random mac address: %s", *macAddress)
+		log.Printf("Using random MAC address %s", *macAddress)
 	}
 	// normalize mac address
 	*macAddress = strings.ToLower(*macAddress)
-
-	if len(*iface) == 0 {
-		log.Fatal("must pass iface")
+	if err := validateSourceMAC(*macAddress); err != nil {
+		usageError("%s", err.Error())
+	}
+	rememberProbeAddresses(*macAddress)
+	if *vlanList != "" {
+		if _, err := parseVlanList(*vlanList); err != nil {
+			usageError("%s", err.Error())
+		}
 	}
 	start()
 }
@@ -175,7 +229,7 @@ func start() {
 		}
 	}()
 
-	filter := fmt.Sprintf("vlan or ether host %s or ether multicast or ether dst 01:80:c2:00:00:0e or ether dst 01:00:0c:cc:cc:cc", *macAddress)
+	filter := captureFilter(*macAddress, *iface)
 	v("listening for packets on %s with filter '%s'", *iface, filter)
 	if handle, err := pcap.OpenLive(*iface, int32(65535), true, pcap.BlockForever); err != nil {
 		// The pcap library doesn't export specific error types for many
@@ -206,7 +260,6 @@ func start() {
 				case packet := <-packetChan:
 					processor.HandlePacket(packet.Data())
 				case <-done:
-					fmt.Println() // Print a newline to avoid overwriting the status line
 					v("Exiting gracefully...")
 					return
 				}
@@ -246,6 +299,10 @@ func printDevices() {
 		if device.Name == "any" {
 			continue
 		}
+		// An interface with no addresses is not connected.
+		if !hasIPAddress(device.Addresses) {
+			continue
+		}
 		fmt.Println("\nName: ", device.Name)
 		fmt.Println("Devices addresses: ", device.Description)
 		for _, address := range device.Addresses {
@@ -255,7 +312,22 @@ func printDevices() {
 	}
 }
 
+// hasIPAddress reports whether the interface has a usable IP address.
+func hasIPAddress(addrs []pcap.InterfaceAddress) bool {
+	for _, addr := range addrs {
+		if len(addr.IP) > 0 && !addr.IP.IsUnspecified() {
+			return true
+		}
+	}
+	return false
+}
+
 func runWorkers(numWorkers int) {
+	if err := startInject(); err != nil {
+		log.Printf("opening inject handle: %v", err)
+	}
+	defer stopInject()
+
 	v("Scanning %d VLANs", len(vlansToScan))
 
 	// Create a channel to send VLAN IDs to workers
@@ -352,8 +424,10 @@ func printStatus(done <-chan bool) {
 				progressStr = " | " + strings.Join(progressParts, " ")
 			}
 
-			fmt.Printf("\r%s%s", findings.StatusString(), progressStr)
+			fmt.Fprintf(os.Stderr, "\r%s%s", findings.StatusString(), progressStr)
 		case <-done:
+			// Finish the progress line. The scan result is the only thing written to stdout.
+			fmt.Fprintln(os.Stderr)
 			return
 		}
 	}

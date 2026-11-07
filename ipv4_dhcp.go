@@ -3,11 +3,9 @@ package main
 import (
 	"math/rand"
 	"net"
-	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	"github.com/google/gopacket/pcap"
 )
 
 // sendDHCPDiscover sends a DHCP sendDHCPDiscover packet on the specified VLAN to probe for DHCP servers.
@@ -100,20 +98,5 @@ func sendMulticast(madAddr net.HardwareAddr, dhcp *layers.DHCPv4, vlanID uint16)
 		return err
 	}
 
-	handle, err := pcap.OpenLive(
-		*iface, // device
-		int32(65535),
-		false,
-		100*time.Millisecond,
-	)
-	if err != nil {
-		return err
-	}
-	defer handle.Close()
-
-	//send
-	if err := handle.WritePacketData(buf.Bytes()); err != nil {
-		return err
-	}
-	return nil
+	return writeFrame(buf.Bytes())
 }

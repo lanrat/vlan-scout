@@ -6,10 +6,14 @@ import (
 	"net"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Findings maps VLAN IDs to their corresponding network findings.
+// VLAN 0 is the untagged network.
 type Findings struct {
+	mu    sync.Mutex
+	own   map[string]struct{}
 	Vlans map[uint16]*VlanFinding `json:"vlans"`
 }
 
@@ -58,7 +62,13 @@ type VlanFinding struct {
 }
 
 // VlanList returns a sorted list of all VLAN IDs that have findings.
-func (f Findings) VlanList() []int {
+func (f *Findings) VlanList() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.vlanIDs()
+}
+
+func (f *Findings) vlanIDs() []int {
 	out := make([]int, 0, len(f.Vlans))
 	for vlan := range f.Vlans {
 		out = append(out, int(vlan))
@@ -67,9 +77,49 @@ func (f Findings) VlanList() []int {
 	return out
 }
 
+// MarkOwnIP records an address that belongs to this scan. Host lists skip it,
+// including addresses already recorded.
+func (f *Findings) MarkOwnIP(ip net.IP) {
+	if ip == nil || ip.IsUnspecified() {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.own == nil {
+		f.own = make(map[string]struct{})
+	}
+	s := ip.String()
+	f.own[s] = struct{}{}
+	for _, vf := range f.Vlans {
+		delete(vf.Hosts.HostsIPv4, s)
+		delete(vf.Hosts.HostsIPv6, s)
+	}
+}
+
+func (f *Findings) isOwn(ip net.IP) bool {
+	if ip == nil || f.own == nil {
+		return false
+	}
+	_, ok := f.own[ip.String()]
+	return ok
+}
+
+func vlanLabel(id uint16) string {
+	if id == 0 {
+		return "untagged"
+	}
+	return fmt.Sprintf("%d", id)
+}
+
 // StatusString returns a human-friendly string representation showing discovered VLANs.
 // Uses detailed format for few VLANs, condensed summary for many VLANs.
-func (f Findings) StatusString() string {
+func (f *Findings) StatusString() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.statusString()
+}
+
+func (f *Findings) statusString() string {
 	if len(f.Vlans) == 0 {
 		return "Discovered VLANs: none"
 	}
@@ -83,7 +133,7 @@ func (f Findings) StatusString() string {
 	out := "Discovered VLANs: "
 	vlanParts := make([]string, 0, len(f.Vlans))
 
-	for _, v := range f.VlanList() {
+	for _, v := range f.vlanIDs() {
 		vf := f.Vlans[uint16(v)]
 		totalHosts := len(vf.Hosts.HostsIPv4) + len(vf.Hosts.HostsIPv6)
 		totalDevices := len(vf.Devices)
@@ -101,7 +151,7 @@ func (f Findings) StatusString() string {
 		}
 
 		// Build VLAN description
-		vlanDesc := fmt.Sprintf("%d(", vf.Vlan)
+		vlanDesc := vlanLabel(vf.Vlan) + "("
 		if len(services) > 0 {
 			vlanDesc += strings.Join(services, "+")
 			if totalHosts > 0 {
@@ -132,7 +182,7 @@ func (f Findings) StatusString() string {
 
 // condensedStatusString returns a summary format for many VLANs.
 // Format: "Found 15 VLANs (8 with DHCP, 5 with IPv6, 120 total hosts, 25 devices)"
-func (f Findings) condensedStatusString() string {
+func (f *Findings) condensedStatusString() string {
 	vlanCount := len(f.Vlans)
 	dhcpCount := 0
 	ipv6Count := 0
@@ -177,7 +227,9 @@ func (f Findings) condensedStatusString() string {
 }
 
 // String returns a detailed string representation of all findings.
-func (f Findings) String() string {
+func (f *Findings) String() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if len(f.Vlans) == 0 {
 		return "No VLANs discovered."
 	}
@@ -204,7 +256,7 @@ func (f Findings) String() string {
 }
 
 // checkVlan ensures a VlanFinding entry exists for the given VLAN ID.
-func (f Findings) checkVlan(vlan uint16) {
+func (f *Findings) checkVlan(vlan uint16) {
 	if _, ok := f.Vlans[vlan]; !ok {
 		f.Vlans[vlan] = &VlanFinding{
 			Vlan: vlan,
@@ -217,16 +269,20 @@ func (f Findings) checkVlan(vlan uint16) {
 }
 
 // ToJson converts findings to JSON format, preparing host arrays for serialization.
-func (f Findings) ToJson() string {
+func (f *Findings) ToJson() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	for _, v := range f.Vlans {
 		v.Hosts.IPv4 = make([]string, 0, len(v.Hosts.HostsIPv4))
 		for host := range v.Hosts.HostsIPv4 {
 			v.Hosts.IPv4 = append(v.Hosts.IPv4, host)
 		}
+		sort.Strings(v.Hosts.IPv4)
 		v.Hosts.IPv6 = make([]string, 0, len(v.Hosts.HostsIPv6))
 		for host := range v.Hosts.HostsIPv6 {
 			v.Hosts.IPv6 = append(v.Hosts.IPv6, host)
 		}
+		sort.Strings(v.Hosts.IPv6)
 
 		if v.IPv4 != nil {
 			v.IPv4.IPstr = v.IPv4.IP.String()
@@ -238,31 +294,45 @@ func (f Findings) ToJson() string {
 			v.IPv6RA.IPstr = v.IPv6RA.IP.String()
 		}
 	}
-	b, err := json.MarshalIndent(findings, "", "  ")
+	b, err := json.MarshalIndent(f, "", "  ")
 	check(err)
 	return string(b)
 }
 
 // AddIPv4Host adds an IPv4 host to the specified VLAN's findings.
-func (f Findings) AddIPv4Host(vlan uint16, ip net.IP) {
-	f.checkVlan(vlan)
-	if ip.IsUnspecified() {
+func (f *Findings) AddIPv4Host(vlan uint16, ip net.IP) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.addIPv4Host(vlan, ip)
+}
+
+func (f *Findings) addIPv4Host(vlan uint16, ip net.IP) {
+	if ip == nil || ip.IsUnspecified() || f.isOwn(ip) {
 		return
 	}
+	f.checkVlan(vlan)
 	f.Vlans[vlan].Hosts.HostsIPv4[ip.String()] = true
 }
 
 // AddIPv6Host adds an IPv6 host to the specified VLAN's findings.
-func (f Findings) AddIPv6Host(vlan uint16, ip net.IP) {
-	f.checkVlan(vlan)
-	if ip.IsUnspecified() {
+func (f *Findings) AddIPv6Host(vlan uint16, ip net.IP) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.addIPv6Host(vlan, ip)
+}
+
+func (f *Findings) addIPv6Host(vlan uint16, ip net.IP) {
+	if ip == nil || ip.IsUnspecified() || f.isOwn(ip) {
 		return
 	}
+	f.checkVlan(vlan)
 	f.Vlans[vlan].Hosts.HostsIPv6[ip.String()] = true
 }
 
 // AddIPv4DHCP records a DHCP response for the specified VLAN.
-func (f Findings) AddIPv4DHCP(vlan uint16, ip net.IPNet, gateway net.IP, server net.IP) {
+func (f *Findings) AddIPv4DHCP(vlan uint16, ip net.IPNet, gateway net.IP, server net.IP) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.checkVlan(vlan)
 	f.Vlans[vlan].IPv4 = &DHCPResponse{
 		IP:      ip,
@@ -272,7 +342,9 @@ func (f Findings) AddIPv4DHCP(vlan uint16, ip net.IPNet, gateway net.IP, server 
 }
 
 // AddIPv6DHCP records a DHCP response for the specified VLAN.
-func (f Findings) AddIPv6DHCP(vlan uint16, ip net.IPNet, gateway net.IP, server net.IP) {
+func (f *Findings) AddIPv6DHCP(vlan uint16, ip net.IPNet, gateway net.IP, server net.IP) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.checkVlan(vlan)
 	f.Vlans[vlan].IPv6 = &DHCPResponse{
 		IP:      ip,
@@ -282,7 +354,9 @@ func (f Findings) AddIPv6DHCP(vlan uint16, ip net.IPNet, gateway net.IP, server 
 }
 
 // AddIPv6SLAAC records an IPv6 Router Advertisement for the specified VLAN.
-func (f Findings) AddIPv6SLAAC(vlan uint16, ip net.IPNet, gateway net.IP) {
+func (f *Findings) AddIPv6SLAAC(vlan uint16, ip net.IPNet, gateway net.IP) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.checkVlan(vlan)
 	f.Vlans[vlan].IPv6RA = &IPv6SLAAC{
 		IP:      ip,
@@ -291,7 +365,9 @@ func (f Findings) AddIPv6SLAAC(vlan uint16, ip net.IPNet, gateway net.IP) {
 }
 
 // AddLLDPDevice adds an LLDP-discovered device to the specified VLAN's findings.
-func (f Findings) AddLLDPDevice(vlan uint16, name, port, description string, mgmtIPs []net.IP, capabilities []string) {
+func (f *Findings) AddLLDPDevice(vlan uint16, name, port, description string, mgmtIPs []net.IP, capabilities []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.checkVlan(vlan)
 
 	// Convert IP addresses to strings
@@ -300,9 +376,9 @@ func (f Findings) AddLLDPDevice(vlan uint16, name, port, description string, mgm
 		mgmtIPStrings[i] = ip.String()
 		// Also add to hosts
 		if ip.To4() != nil {
-			f.AddIPv4Host(vlan, ip)
+			f.addIPv4Host(vlan, ip)
 		} else {
-			f.AddIPv6Host(vlan, ip)
+			f.addIPv6Host(vlan, ip)
 		}
 	}
 
@@ -319,7 +395,9 @@ func (f Findings) AddLLDPDevice(vlan uint16, name, port, description string, mgm
 }
 
 // AddCDPDevice adds a CDP-discovered device to the specified VLAN's findings.
-func (f Findings) AddCDPDevice(vlan uint16, name, port, description string, mgmtIPs []net.IP, capabilities []string, nativeVLAN uint16) {
+func (f *Findings) AddCDPDevice(vlan uint16, name, port, description string, mgmtIPs []net.IP, capabilities []string, nativeVLAN uint16) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.checkVlan(vlan)
 
 	// Convert IP addresses to strings
@@ -328,9 +406,9 @@ func (f Findings) AddCDPDevice(vlan uint16, name, port, description string, mgmt
 		mgmtIPStrings[i] = ip.String()
 		// Also add to hosts
 		if ip.To4() != nil {
-			f.AddIPv4Host(vlan, ip)
+			f.addIPv4Host(vlan, ip)
 		} else {
-			f.AddIPv6Host(vlan, ip)
+			f.addIPv6Host(vlan, ip)
 		}
 	}
 
@@ -349,7 +427,11 @@ func (f Findings) AddCDPDevice(vlan uint16, name, port, description string, mgmt
 
 // String returns a formatted string representation of the VLAN finding.
 func (v *VlanFinding) String() string {
-	out := fmt.Sprintf("VLAN %d:\n", v.Vlan)
+	title := fmt.Sprintf("VLAN %d", v.Vlan)
+	if v.Vlan == 0 {
+		title = "Untagged"
+	}
+	out := title + ":\n"
 
 	var items []string
 
