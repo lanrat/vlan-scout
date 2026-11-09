@@ -135,9 +135,33 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
 
+  - id: vlan-scout-armv7-musl
+    main: .
+    binary: vlan-scout-musl
+    goos:
+      - linux
+    goarch:
+      - arm
+    goarm:
+      - "7"
+    env:
+      - CGO_ENABLED=1
+      - CC=zig cc -target arm-linux-musleabihf
+      - CXX=zig c++ -target arm-linux-musleabihf
+      - CGO_CFLAGS=-I{{ .Env.LIBS_DIR }}/libpcap-arm-linux-musleabihf
+      - CGO_LDFLAGS=-L{{ .Env.LIBS_DIR }}/libpcap-arm-linux-musleabihf
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
 nfpms:
   - id: vlan-scout
     # Package info
+    ids:
+      - vlan-scout-amd64
+      - vlan-scout-arm64
+      - vlan-scout-armhf
     maintainer: lanrat
     homepage: https://github.com/lanrat/vlan-scout
     description: |-
@@ -168,7 +192,8 @@ archives:
     id: musl
     ids:
       - vlan-scout-arm64-musl
-    name_template: "{{ .ProjectName }}-musl_{{ .Os }}_{{ .Arch }}"
+      - vlan-scout-armv7-musl
+    name_template: "{{ .ProjectName }}-musl_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
 
 checksum:
   name_template: 'checksums.txt'
