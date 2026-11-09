@@ -88,12 +88,13 @@ func (pp *PacketProcessor) HandlePacket(data []byte) {
 		}
 	}
 
+	// VLAN 0 is the untagged network, including a trunk's native VLAN.
+	if !hasVLAN {
+		vlan = 0
+	}
+
 	// Handle LLDP and CDP packets separately as they need full packet parsing
 	pp.handleLLDPCDP(data, vlan)
-
-	if !hasVLAN {
-		return
-	}
 
 	if pp.vlans != nil {
 		if !pp.vlans[vlan] {
@@ -163,6 +164,7 @@ func (pp *PacketProcessor) HandlePacket(data []byte) {
 		case layers.LayerTypeDHCPv4:
 			if pp.dhcpv4.Operation == layers.DHCPOpReply {
 				v("DHCP Reply - your client ip: %s", pp.dhcpv4.YourClientIP.String())
+				findings.MarkOwnIP(pp.dhcpv4.YourClientIP)
 
 				var netmask net.IPMask
 				var gateway net.IP
@@ -233,6 +235,7 @@ func (pp *PacketProcessor) HandlePacket(data []byte) {
 									// IAADDR format: IPv6 address(16) + preferred-lifetime(4) + valid-lifetime(4) + sub-options
 									addr := net.IP(subOptPayload[:16])
 									v("DHCPv6 assigned address: %s", addr.String())
+									findings.MarkOwnIP(addr)
 
 									// For DHCPv6, individual addresses are typically /128 unless part of a larger prefix
 									// Most DHCPv6 deployments use /64 prefixes for the link
@@ -282,6 +285,7 @@ func (pp *PacketProcessor) HandlePacket(data []byte) {
 							// Extract IPv6 address (first 16 bytes)
 							addr := net.IP(opt.Data[:16])
 							v("DHCPv6 assigned address: %s", addr.String())
+							findings.MarkOwnIP(addr)
 							// For DHCPv6, individual addresses are typically /128 unless part of a delegated prefix
 							// Check if this is part of a larger prefix by looking at network context
 							prefixLen := 128 // Default to individual address

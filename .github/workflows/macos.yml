@@ -1,0 +1,76 @@
+name: macOS
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: darwin
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build macOS binaries
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -euo pipefail
+          version="$(git describe --tags --always --dirty)"
+          sdk="$(xcrun --sdk macosx --show-sdk-path)"
+          ldflags="-s -w -X main.version=${version}"
+          mkdir -p dist
+
+          echo "Building darwin/arm64"
+          GOOS=darwin GOARCH=arm64 \
+            CGO_CFLAGS="-isysroot ${sdk}" \
+            CGO_LDFLAGS="-isysroot ${sdk}" \
+            go build -trimpath -ldflags="${ldflags}" -o dist/vlan-scout .
+          tar -C dist -czf dist/vlan-scout_darwin_arm64.tar.gz vlan-scout
+          rm dist/vlan-scout
+
+          echo "Building darwin/amd64"
+          GOOS=darwin GOARCH=amd64 \
+            CC="clang -arch x86_64" \
+            CGO_CFLAGS="-isysroot ${sdk} -arch x86_64" \
+            CGO_LDFLAGS="-isysroot ${sdk} -arch x86_64" \
+            go build -trimpath -ldflags="${ldflags}" -o dist/vlan-scout .
+          tar -C dist -czf dist/vlan-scout_darwin_amd64.tar.gz vlan-scout
+          rm dist/vlan-scout
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vlan-scout-darwin
+          path: dist/*.tar.gz
+
+      - name: Attach binaries to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          for _ in 1 2 3 4 5 6; do
+            if gh release view "$tag" >/dev/null 2>&1; then
+              gh release upload "$tag" dist/*.tar.gz --clobber
+              exit 0
+            fi
+            echo "release ${tag} not ready, waiting..."
+            sleep 20
+          done
+          echo "No GitHub release for ${tag}. The binaries are in the workflow artifacts."
+          exit 1

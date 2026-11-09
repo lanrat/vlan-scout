@@ -4,11 +4,9 @@ import (
 	"crypto/rand"
 	"fmt"
 	"net"
-	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	"github.com/google/gopacket/pcap"
 )
 
 // sendDHCPv6Solicit constructs and sends a DHCPv6 Solicit packet with hostname
@@ -139,14 +137,7 @@ func sendDHCPv6Solicit(vlanID uint16) error {
 		return fmt.Errorf("failed to serialize DHCPv6 layers: %w", err)
 	}
 
-	// Send packet
-	handle, err := pcap.OpenLive(*iface, int32(65535), false, 100*time.Millisecond)
-	if err != nil {
-		return fmt.Errorf("pcap.OpenLive failed: %w", err)
-	}
-	defer handle.Close()
-
-	if err := handle.WritePacketData(buf.Bytes()); err != nil {
+	if err := writeFrame(buf.Bytes()); err != nil {
 		return fmt.Errorf("failed to write DHCPv6 packet data: %w", err)
 	}
 
