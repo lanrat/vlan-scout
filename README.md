@@ -61,7 +61,7 @@ go build
 
 ### Cross-Platform Releases
 
-Cross-platform builds for Linux (amd64, arm64, armhf, musl arm64, and musl armv7) and Windows (amd64) are automatically built and released via GitHub Actions using Zig for cross-compilation. macOS arm64 and amd64 binaries are built natively in the macOS workflow and attached to the same release.
+Cross-platform builds for Linux (amd64, arm64, and armhf) and Windows (amd64) are automatically built and released via GitHub Actions using Zig for cross-compilation. Each Linux target also has a musl build for OpenWrt: `vlan-scout-musl_linux_amd64.tar.gz`, `vlan-scout-musl_linux_arm64.tar.gz`, and `vlan-scout-musl_linux_armv7.tar.gz`. The deb, rpm, and apk packages are glibc builds and do not run on OpenWrt. macOS arm64 and amd64 binaries are built natively in the macOS workflow and attached to the same release.
 
 **For local development**, use `go build` to build for your native platform. Cross-compilation with CGO dependencies requires Zig and is not recommended for local builds.
 

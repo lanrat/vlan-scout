@@ -117,6 +117,24 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
 
+  - id: vlan-scout-amd64-musl
+    main: .
+    binary: vlan-scout-musl
+    goos:
+      - linux
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=1
+      - CC=zig cc -target x86_64-linux-musl
+      - CXX=zig c++ -target x86_64-linux-musl
+      - CGO_CFLAGS=-I{{ .Env.LIBS_DIR }}/libpcap-x86_64-linux-musl
+      - CGO_LDFLAGS=-L{{ .Env.LIBS_DIR }}/libpcap-x86_64-linux-musl
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
   - id: vlan-scout-arm64-musl
     main: .
     binary: vlan-scout-musl
@@ -191,6 +209,7 @@ archives:
   - # Musl build for OpenWRT
     id: musl
     ids:
+      - vlan-scout-amd64-musl
       - vlan-scout-arm64-musl
       - vlan-scout-armv7-musl
     name_template: "{{ .ProjectName }}-musl_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
