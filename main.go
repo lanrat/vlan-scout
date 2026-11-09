@@ -48,7 +48,7 @@ func init() {
 func usage() {
 	out := flag.CommandLine.Output()
 	name := os.Args[0]
-	fmt.Fprintf(out, `vlan-scout discovers VLANs on an interface. It listens for DHCP, router advertisements, ARP, NDP, LLDP, and CDP, and can send probes to draw out quiet networks.
+	_, err := fmt.Fprintf(out, `vlan-scout discovers VLANs on an interface. It listens for DHCP, router advertisements, ARP, NDP, LLDP, and CDP, and can send probes to draw out quiet networks.
 
 Usage:
   %s -iface <name> [options]
@@ -70,6 +70,9 @@ Examples:
 
 Options:
 `, name, name, name, name, name, name, name)
+	if err != nil {
+		return
+	}
 	flag.PrintDefaults()
 }
 
