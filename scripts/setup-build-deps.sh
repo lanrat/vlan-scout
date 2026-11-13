@@ -13,6 +13,7 @@ declare -a TARGETS=(
     "aarch64-linux-gnu aarch64-linux-gnu aarch64-linux-gnu"
     "arm-linux-gnueabihf arm-linux-gnueabihf arm-linux-gnueabihf"
     "aarch64-linux-musl aarch64-linux-musl aarch64-linux-musl"
+    "arm-linux-musleabihf arm-linux-musleabihf arm-linux-musleabihf"
     #"x86_64-macos x86_64-macos x86_64-apple-darwin"
     #"aarch64-macos aarch64-macos aarch64-apple-darwin"
 )

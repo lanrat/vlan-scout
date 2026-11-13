@@ -31,6 +31,8 @@ The tool passively listens for network activity while optionally sending active 
 
 Download the latest release from the [GitHub releases page](https://github.com/lanrat/vlan-scout/releases).
 
+For OpenWrt/LEDE routers and other musl-based systems, use the fully static `vlan-scout-musl_linux_arm64.tar.gz` (64-bit ARM) or `vlan-scout-musl_linux_armv7.tar.gz` (32-bit ARMv7 hard-float, e.g. ipq40xx/Cortex-A7) builds. They have no runtime dependencies.
+
 ### Build from Source
 
 **Prerequisites:**
@@ -61,7 +63,7 @@ go build
 
 ### Cross-Platform Releases
 
-Cross-platform builds for Linux (amd64/arm64/armhf/musl) and Windows (amd64) are automatically built and released via GitHub Actions using Zig for cross-compilation.
+Cross-platform builds for Linux (amd64/arm64/armhf, plus static musl arm64/armv7) and Windows (amd64) are automatically built and released via GitHub Actions using Zig for cross-compilation.
 
 **For local development**, use `go build` to build for your native platform. Cross-compilation with CGO dependencies requires Zig and is not recommended for local builds.
 
