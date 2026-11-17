@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -98,6 +99,7 @@ var (
 	activeTestComplete = false
 	active             = false
 	vlansToScan        []uint16
+	ifaceHW            net.HardwareAddr
 )
 
 // main is the entry point of the VLAN discovery tool.
@@ -145,12 +147,12 @@ func main() {
 	if err := validateSourceMAC(*macAddress); err != nil {
 		usageError("%s", err.Error())
 	}
-	rememberProbeAddresses(*macAddress)
-	if *vlanList != "" {
-		if _, err := parseVlanList(*vlanList); err != nil {
-			usageError("%s", err.Error())
-		}
+	var err error
+	vlansToScan, err = parseVlanList(*vlanList)
+	if err != nil {
+		usageError("%s", err.Error())
 	}
+	rememberProbeAddresses(*macAddress)
 	start()
 }
 
@@ -160,7 +162,7 @@ func main() {
 func start() {
 	// Create a waitgroup to ensure sender goroutines finish before shutdown.
 	var wg sync.WaitGroup
-	var err error
+	var statusWG sync.WaitGroup
 
 	// Create a channel to listen for OS signals.
 	sigs := make(chan os.Signal, 1)
@@ -184,12 +186,6 @@ func start() {
 		done <- true // Signal that cleanup is done and the main goroutine can exit
 		close(done)
 	}()
-
-	// Parse the VLAN list from command line argument
-	vlansToScan, err = parseVlanList(*vlanList)
-	if err != nil {
-		log.Fatalf("Error parsing VLAN list: %v", err)
-	}
 
 	if active {
 		wg.Add(1)
@@ -232,7 +228,8 @@ func start() {
 		}
 	}()
 
-	filter := captureFilter(*macAddress, *iface)
+	ifaceHW = interfaceHardware(*iface)
+	filter := captureFilter(*macAddress, ifaceHW)
 	v("listening for packets on %s with filter '%s'", *iface, filter)
 	if handle, err := pcap.OpenLive(*iface, int32(65535), true, pcap.BlockForever); err != nil {
 		// The pcap library doesn't export specific error types for many
@@ -249,7 +246,11 @@ func start() {
 	} else {
 		defer handle.Close()
 		log.Println("Program running. Press Ctrl+C to trigger graceful shutdown.")
-		go printStatus(done)
+		statusWG.Add(1)
+		go func() {
+			defer statusWG.Done()
+			printStatus(done)
+		}()
 
 		// Create PacketProcessor for better performance
 		processor := NewPacketProcessor()
@@ -271,6 +272,7 @@ func start() {
 	}
 
 	<-done // Block the main goroutine until the 'done' channel receives a value
+	statusWG.Wait()
 
 	if *toJSON {
 		fmt.Println(findings.ToJson())
@@ -302,10 +304,6 @@ func printDevices() {
 		if device.Name == "any" {
 			continue
 		}
-		// An interface with no addresses is not connected.
-		if !hasIPAddress(device.Addresses) {
-			continue
-		}
 		fmt.Println("\nName: ", device.Name)
 		fmt.Println("Devices addresses: ", device.Description)
 		for _, address := range device.Addresses {
@@ -313,16 +311,6 @@ func printDevices() {
 			fmt.Println("- IP address: ", ip.String())
 		}
 	}
-}
-
-// hasIPAddress reports whether the interface has a usable IP address.
-func hasIPAddress(addrs []pcap.InterfaceAddress) bool {
-	for _, addr := range addrs {
-		if len(addr.IP) > 0 && !addr.IP.IsUnspecified() {
-			return true
-		}
-	}
-	return false
 }
 
 func runWorkers(numWorkers int) {

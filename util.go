@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"fmt"
 	"log"
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/google/gopacket/layers"
 )
 
 // v prints verbose output when the verbose flag is enabled.
@@ -62,18 +65,62 @@ func validateSourceMAC(mac string) error {
 	return nil
 }
 
-// captureFilter selects VLAN traffic, probes sent from mac, and the
-// discovery multicasts. ifaceName's hardware address is included so a
-// reply still matches if the OS substitutes that address for mac.
-func captureFilter(mac, ifaceName string) string {
-	hosts := "ether host " + mac
-	if ifi, err := net.InterfaceByName(ifaceName); err == nil && len(ifi.HardwareAddr) == 6 {
-		hw := ifi.HardwareAddr.String()
-		if hw != mac {
-			hosts += " or ether host " + hw
-		}
+// interfaceHardware returns the 6-byte Ethernet address of name, or nil when
+// the interface has none.
+func interfaceHardware(name string) net.HardwareAddr {
+	ifi, err := net.InterfaceByName(name)
+	if err != nil || len(ifi.HardwareAddr) != 6 {
+		return nil
 	}
-	return "vlan or " + hosts + " or ether multicast or ether dst 01:80:c2:00:00:0e or ether dst 01:00:0c:cc:cc:cc"
+	return append(net.HardwareAddr(nil), ifi.HardwareAddr...)
+}
+
+// captureFilter selects VLAN traffic, probes sent from mac, and the
+// discovery multicasts. hw is matched only as the destination of replies
+// to probes (DHCPv4, DHCPv6, and router advertisements), so the rest of
+// this machine's traffic is left out of the capture.
+func captureFilter(mac string, hw net.HardwareAddr) string {
+	filter := "vlan or ether host " + mac + " or ether multicast or ether dst 01:80:c2:00:00:0e or ether dst 01:00:0c:cc:cc:cc"
+	if len(hw) == 6 && !strings.EqualFold(hw.String(), mac) {
+		filter += " or (ether dst " + hw.String() + " and (udp port 68 or udp port 546 or icmp6[icmp6type] == icmp6-routeradvert))"
+	}
+	return filter
+}
+
+// frameFromUs reports whether src is the probe MAC or the interface MAC.
+func frameFromUs(src net.HardwareAddr) bool {
+	if clientHWIsProbe(src) {
+		return true
+	}
+	return len(ifaceHW) == 6 && len(src) >= 6 && bytes.Equal(src[:6], ifaceHW[:6])
+}
+
+// clientHWIsProbe reports whether chaddr is the MAC this scan sends probes from.
+func clientHWIsProbe(chaddr net.HardwareAddr) bool {
+	probe, err := net.ParseMAC(*macAddress)
+	if err != nil || len(probe) != 6 || len(chaddr) < 6 {
+		return false
+	}
+	return bytes.Equal(chaddr[:6], probe)
+}
+
+// dhcpv6ClientIsProbe reports whether a DHCPv6 message echoes the probe's
+// DUID-LL. Replies for other clients are not this scan's addresses.
+func dhcpv6ClientIsProbe(opts layers.DHCPv6Options) bool {
+	for _, opt := range opts {
+		if opt.Code != layers.DHCPv6OptClientID {
+			continue
+		}
+		var duid layers.DHCPv6DUID
+		if err := duid.DecodeFromBytes(opt.Data); err != nil {
+			return false
+		}
+		if duid.Type != layers.DHCPv6DUIDTypeLL {
+			return false
+		}
+		return clientHWIsProbe(duid.LinkLayerAddress)
+	}
+	return false
 }
 
 // macToLinkLocal generates an IPv6 link-local address from a MAC address
@@ -207,5 +254,7 @@ func rememberProbeAddresses(mac string) {
 	if err != nil {
 		return
 	}
-	findings.MarkOwnIP(ip)
+	for _, vlan := range vlansToScan {
+		findings.MarkOwnIP(vlan, ip)
+	}
 }

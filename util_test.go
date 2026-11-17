@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
 )
 
@@ -35,32 +36,36 @@ func TestGenerateRandomMACIsUnicastLocal(t *testing.T) {
 	}
 }
 
-func TestCaptureFilterIncludesProbeAndInterfaceMAC(t *testing.T) {
+func TestCaptureFilterMatchesInterfaceOnlyForProbeReplies(t *testing.T) {
 	const probe = "02:00:00:00:00:01"
-	f := captureFilter(probe, "no-such-iface-vlan-scout")
+	f := captureFilter(probe, nil)
 	if !strings.Contains(f, "ether host "+probe) {
 		t.Fatalf("filter missing probe MAC: %s", f)
 	}
-	if strings.Contains(f, "no-such-iface") {
-		t.Fatalf("filter should ignore a missing interface: %s", f)
+	if strings.Contains(f, "udp port 68") {
+		t.Fatalf("filter without an interface MAC should not match DHCP client port: %s", f)
 	}
-
-	ifaces, err := net.Interfaces()
-	if err != nil {
+	if _, err := pcap.CompileBPFFilter(layers.LinkTypeEthernet, 65535, f); err != nil {
 		t.Fatal(err)
 	}
-	for _, ifi := range ifaces {
-		if len(ifi.HardwareAddr) != 6 {
-			continue
-		}
-		f = captureFilter(probe, ifi.Name)
-		hw := ifi.HardwareAddr.String()
-		if hw != probe && !strings.Contains(f, "ether host "+hw) {
-			t.Fatalf("filter %s missing interface MAC %s", f, hw)
-		}
-		return
+
+	hw := net.HardwareAddr{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}
+	f = captureFilter(probe, hw)
+	if strings.Contains(f, "ether host "+hw.String()) {
+		t.Fatalf("filter matches all traffic for the interface: %s", f)
 	}
-	t.Skip("no interface with a hardware address")
+	want := "ether dst " + hw.String() + " and (udp port 68 or udp port 546 or icmp6[icmp6type] == icmp6-routeradvert)"
+	if !strings.Contains(f, want) {
+		t.Fatalf("filter %s missing %s", f, want)
+	}
+	if _, err := pcap.CompileBPFFilter(layers.LinkTypeEthernet, 65535, f); err != nil {
+		t.Fatal(err)
+	}
+
+	f = captureFilter(hw.String(), hw)
+	if strings.Contains(f, "udp port 68") {
+		t.Fatalf("probe MAC is the interface MAC, so no extra clause is needed: %s", f)
+	}
 }
 
 func TestUsageIncludesHowToRun(t *testing.T) {
@@ -126,7 +131,7 @@ func TestProbeLinkLocalIsNotListedAsHost(t *testing.T) {
 
 	f := &Findings{Vlans: map[uint16]*VlanFinding{}}
 	f.AddIPv6Host(86, ip)
-	f.MarkOwnIP(ip)
+	f.MarkOwnIP(86, ip)
 	f.AddIPv6Host(86, net.ParseIP("fe80::1"))
 	if _, ok := f.Vlans[86].Hosts.HostsIPv6[ip.String()]; ok {
 		t.Fatal("probe link-local was kept")
@@ -157,15 +162,83 @@ func TestToJsonSortsHosts(t *testing.T) {
 	}
 }
 
-func TestHasIPAddress(t *testing.T) {
-	if hasIPAddress(nil) {
-		t.Fatal("nil address list")
+func TestOwnIPIsKeptPerVLAN(t *testing.T) {
+	ip := net.ParseIP("192.168.1.50")
+	f := &Findings{Vlans: map[uint16]*VlanFinding{}}
+	f.AddIPv4Host(10, ip)
+	f.AddIPv4Host(20, ip)
+	f.MarkOwnIP(10, ip)
+	if _, ok := f.Vlans[10].Hosts.HostsIPv4[ip.String()]; ok {
+		t.Fatal("own address kept on its VLAN")
 	}
-	if hasIPAddress([]pcap.InterfaceAddress{{}}) {
-		t.Fatal("empty address")
+	if _, ok := f.Vlans[20].Hosts.HostsIPv4[ip.String()]; !ok {
+		t.Fatal("same address removed from another VLAN")
 	}
-	if !hasIPAddress([]pcap.InterfaceAddress{{IP: net.ParseIP("10.47.22.152")}}) {
-		t.Fatal("expected an address")
+	f.AddIPv4Host(10, ip)
+	if _, ok := f.Vlans[10].Hosts.HostsIPv4[ip.String()]; ok {
+		t.Fatal("own address was added again")
+	}
+}
+
+func TestDHCPClientMatch(t *testing.T) {
+	orig := *macAddress
+	*macAddress = "02:00:00:00:00:0a"
+	t.Cleanup(func() { *macAddress = orig })
+
+	probe, err := net.ParseMAC(*macAddress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := net.ParseMAC("02:00:00:00:00:0b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !clientHWIsProbe(probe) {
+		t.Fatal("probe MAC did not match")
+	}
+	if clientHWIsProbe(other) {
+		t.Fatal("other MAC matched the probe")
+	}
+
+	ours := layers.DHCPv6Options{{
+		Code: layers.DHCPv6OptClientID,
+		Data: append([]byte{0x00, 0x03, 0x00, 0x01}, probe...),
+	}}
+	theirs := layers.DHCPv6Options{{
+		Code: layers.DHCPv6OptClientID,
+		Data: append([]byte{0x00, 0x03, 0x00, 0x01}, other...),
+	}}
+	if !dhcpv6ClientIsProbe(ours) {
+		t.Fatal("expected our DUID-LL")
+	}
+	if dhcpv6ClientIsProbe(theirs) {
+		t.Fatal("other client's DUID matched")
+	}
+	if dhcpv6ClientIsProbe(nil) {
+		t.Fatal("empty options matched")
+	}
+}
+
+func TestFrameFromUsIncludesInterfaceMAC(t *testing.T) {
+	origMAC := *macAddress
+	origHW := ifaceHW
+	*macAddress = "02:00:00:00:00:0a"
+	ifaceHW = net.HardwareAddr{0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff}
+	t.Cleanup(func() {
+		*macAddress = origMAC
+		ifaceHW = origHW
+	})
+
+	probe, err := net.ParseMAC(*macAddress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !frameFromUs(probe) || !frameFromUs(ifaceHW) {
+		t.Fatal("expected probe and interface sources to be skipped")
+	}
+	other := net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x0b}
+	if frameFromUs(other) {
+		t.Fatal("another host was treated as ours")
 	}
 }
 

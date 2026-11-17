@@ -12,8 +12,10 @@ import (
 // Findings maps VLAN IDs to their corresponding network findings.
 // VLAN 0 is the untagged network.
 type Findings struct {
-	mu    sync.Mutex
-	own   map[string]struct{}
+	mu sync.Mutex
+	// own is this scan's addresses, keyed by VLAN. The same address on
+	// another VLAN belongs to a different host and stays in that host list.
+	own   map[uint16]map[string]struct{}
 	Vlans map[uint16]*VlanFinding `json:"vlans"`
 }
 
@@ -77,30 +79,37 @@ func (f *Findings) vlanIDs() []int {
 	return out
 }
 
-// MarkOwnIP records an address that belongs to this scan. Host lists skip it,
-// including addresses already recorded.
-func (f *Findings) MarkOwnIP(ip net.IP) {
+// MarkOwnIP records an address that belongs to this scan on one VLAN. Host
+// lists for that VLAN skip it, including an address already recorded there.
+func (f *Findings) MarkOwnIP(vlan uint16, ip net.IP) {
 	if ip == nil || ip.IsUnspecified() {
 		return
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.markOwnIP(vlan, ip)
+}
+
+func (f *Findings) markOwnIP(vlan uint16, ip net.IP) {
 	if f.own == nil {
-		f.own = make(map[string]struct{})
+		f.own = make(map[uint16]map[string]struct{})
+	}
+	if f.own[vlan] == nil {
+		f.own[vlan] = make(map[string]struct{})
 	}
 	s := ip.String()
-	f.own[s] = struct{}{}
-	for _, vf := range f.Vlans {
+	f.own[vlan][s] = struct{}{}
+	if vf := f.Vlans[vlan]; vf != nil {
 		delete(vf.Hosts.HostsIPv4, s)
 		delete(vf.Hosts.HostsIPv6, s)
 	}
 }
 
-func (f *Findings) isOwn(ip net.IP) bool {
-	if ip == nil || f.own == nil {
+func (f *Findings) isOwn(vlan uint16, ip net.IP) bool {
+	if ip == nil || f.own == nil || f.own[vlan] == nil {
 		return false
 	}
-	_, ok := f.own[ip.String()]
+	_, ok := f.own[vlan][ip.String()]
 	return ok
 }
 
@@ -307,7 +316,7 @@ func (f *Findings) AddIPv4Host(vlan uint16, ip net.IP) {
 }
 
 func (f *Findings) addIPv4Host(vlan uint16, ip net.IP) {
-	if ip == nil || ip.IsUnspecified() || f.isOwn(ip) {
+	if ip == nil || ip.IsUnspecified() || f.isOwn(vlan, ip) {
 		return
 	}
 	f.checkVlan(vlan)
@@ -322,7 +331,7 @@ func (f *Findings) AddIPv6Host(vlan uint16, ip net.IP) {
 }
 
 func (f *Findings) addIPv6Host(vlan uint16, ip net.IP) {
-	if ip == nil || ip.IsUnspecified() || f.isOwn(ip) {
+	if ip == nil || ip.IsUnspecified() || f.isOwn(vlan, ip) {
 		return
 	}
 	f.checkVlan(vlan)
