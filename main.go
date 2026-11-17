@@ -24,6 +24,7 @@ var (
 	version      = "dev" // Version string, set at build time
 	iface        = flag.String("iface", "", "interface to capture on (required to scan)")
 	list         = flag.Bool("list", false, "list interfaces and exit")
+	listAll      = flag.Bool("a", false, "with -list, show every interface")
 	dhcpv4       = flag.Bool("dhcp", false, "send DHCPv4 discovers")
 	dhcpv6       = flag.Bool("dhcp6", false, "send DHCPv6 solicits (also sends router solicitations)")
 	sendRA       = flag.Bool("ra", false, "send IPv6 router solicitations")
@@ -53,7 +54,7 @@ func usage() {
 
 Usage:
   %s -iface <name> [options]
-  %s -list
+  %s -list [-a]
   %s -version
 
 Opening the interface requires permission to capture packets. On macOS and Linux, run it with sudo.
@@ -65,12 +66,13 @@ Omit -vlans to probe the untagged network and VLAN IDs 1-4094. After active prob
 
 Examples:
   sudo %s -list
+  sudo %s -list -a
   sudo %s -iface en0
   sudo %s -iface en0 -all -random-mac -hostname computer101
   sudo %s -iface en0 -dhcp -vlans 1,10,20-30
 
 Options:
-`, name, name, name, name, name, name, name)
+`, name, name, name, name, name, name, name, name)
 	if err != nil {
 		return
 	}
@@ -114,6 +116,10 @@ func main() {
 	if *showVersion {
 		fmt.Println(version)
 		return
+	}
+
+	if *listAll && !*list {
+		usageError("-a requires -list")
 	}
 
 	if *list {
@@ -289,28 +295,40 @@ func printDevices() {
 	devices, err := pcap.FindAllDevs()
 	check(err)
 
+	macs := interfaceMACs()
+
 	// Print device information
 	fmt.Println("Devices found:")
 	for _, device := range devices {
-		// skip CONNECTION_STATUS_NOT_APPLICABLE if not also UP
-		if device.Flags&PCAP_IF_CONNECTION_STATUS_NOT_APPLICABLE != 0 && device.Flags&PCAP_IF_UP == 0 {
-			continue
-		}
-		// skip bluetooth
-		if strings.HasPrefix(device.Name, "bluetooth") {
-			continue
-		}
-		// skip any
-		if device.Name == "any" {
+		if !showDevice(device.Name, device.Flags) {
 			continue
 		}
 		fmt.Println("\nName: ", device.Name)
+		if mac := macs[device.Name]; mac != "" {
+			fmt.Println("MAC address: ", mac)
+		}
 		fmt.Println("Devices addresses: ", device.Description)
 		for _, address := range device.Addresses {
 			ip := IP2IPNet(address.IP, address.Netmask)
 			fmt.Println("- IP address: ", ip.String())
 		}
 	}
+}
+
+// showDevice reports whether -list should print this interface. -a prints
+// every interface pcap reports. Otherwise unplugged interfaces are hidden,
+// and on macOS so are drivers that cannot carry an 802.1Q tag.
+func showDevice(name string, flags uint32) bool {
+	if *listAll {
+		return true
+	}
+	if interfaceIsInactive(flags) || !interfaceCanVLAN(name) {
+		return false
+	}
+	if strings.HasPrefix(name, "bluetooth") || name == "any" {
+		return false
+	}
+	return true
 }
 
 func runWorkers(numWorkers int) {

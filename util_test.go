@@ -78,7 +78,8 @@ func TestUsageIncludesHowToRun(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		os.Args[0] + " -iface <name>",
-		os.Args[0] + " -list",
+		os.Args[0] + " -list [-a]",
+		os.Args[0] + " -list -a",
 		os.Args[0] + " -version",
 		"-all",
 		"-random-mac",
@@ -239,6 +240,60 @@ func TestFrameFromUsIncludesInterfaceMAC(t *testing.T) {
 	other := net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x0b}
 	if frameFromUs(other) {
 		t.Fatal("another host was treated as ours")
+	}
+}
+
+func TestInterfaceMACsMatchNet(t *testing.T) {
+	macs := interfaceMACs()
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ifi := range ifaces {
+		got := macs[ifi.Name]
+		want := ""
+		if len(ifi.HardwareAddr) > 0 {
+			want = ifi.HardwareAddr.String()
+		}
+		if got != want {
+			t.Fatalf("%s: got %q want %q", ifi.Name, got, want)
+		}
+	}
+}
+
+func TestShowDeviceListAll(t *testing.T) {
+	orig := *listAll
+	t.Cleanup(func() { *listAll = orig })
+
+	inactive := uint32(PCAP_IF_UP | PCAP_IF_RUNNING | PCAP_IF_CONNECTION_STATUS_DISCONNECTED)
+	*listAll = false
+	if showDevice("en1", inactive) {
+		t.Fatal("inactive interface listed")
+	}
+	if showDevice("any", PCAP_IF_UP) || showDevice("bluetooth0", PCAP_IF_UP) {
+		t.Fatal("virtual interface listed")
+	}
+	*listAll = true
+	if !showDevice("en1", inactive) || !showDevice("any", 0) || !showDevice("utun0", 0) {
+		t.Fatal("-a hid an interface")
+	}
+}
+
+func TestInterfaceIsInactive(t *testing.T) {
+	connected := uint32(PCAP_IF_UP | PCAP_IF_RUNNING | PCAP_IF_CONNECTION_STATUS_CONNECTED)
+	inactive := uint32(PCAP_IF_UP | PCAP_IF_RUNNING | PCAP_IF_CONNECTION_STATUS_DISCONNECTED)
+	tunnel := uint32(PCAP_IF_UP | PCAP_IF_RUNNING | PCAP_IF_CONNECTION_STATUS_NOT_APPLICABLE)
+	down := uint32(PCAP_IF_CONNECTION_STATUS_NOT_APPLICABLE)
+	unknown := uint32(PCAP_IF_UP | PCAP_IF_RUNNING)
+
+	if interfaceIsInactive(connected) || interfaceIsInactive(tunnel) || interfaceIsInactive(unknown) {
+		t.Fatal("connected, tunnel, and unknown-status interfaces should stay listed")
+	}
+	if !interfaceIsInactive(inactive) {
+		t.Fatal("disconnected interface should be hidden")
+	}
+	if !interfaceIsInactive(down) {
+		t.Fatal("down interface with no connection status should be hidden")
 	}
 }
 

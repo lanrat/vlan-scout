@@ -69,10 +69,18 @@ Cross-platform builds for Linux (amd64, arm64, and armhf) and Windows (amd64) ar
 
 ### Quick Start
 
-**List available network interfaces:**
+**List interfaces that can be scanned:**
 
 ```bash
 sudo ./vlan-scout -list
+```
+
+This omits unplugged interfaces. On macOS it also omits interfaces whose driver cannot carry an 802.1Q tag, such as `utun`, loopback, and AWDL. Each entry includes a MAC address when the interface has one.
+
+**List every interface:**
+
+```bash
+sudo ./vlan-scout -list -a
 ```
 
 **Basic VLAN discovery (passive monitoring):**
@@ -114,7 +122,7 @@ vlan-scout discovers VLANs on an interface. It listens for DHCP, router advertis
 
 Usage:
   vlan-scout -iface <name> [options]
-  vlan-scout -list
+  vlan-scout -list [-a]
   vlan-scout -version
 
 Opening the interface requires permission to capture packets. On macOS and Linux, run it with sudo.
@@ -126,11 +134,14 @@ Omit -vlans to probe the untagged network and VLAN IDs 1-4094. After active prob
 
 Examples:
   sudo vlan-scout -list
+  sudo vlan-scout -list -a
   sudo vlan-scout -iface en0
   sudo vlan-scout -iface en0 -all -random-mac -hostname computer101
   sudo vlan-scout -iface en0 -dhcp -vlans 1,10,20-30
 
 Options:
+  -a
+        with -list, show every interface
   -all
         send DHCPv4, DHCPv6, and router solicitations
   -dhcp
