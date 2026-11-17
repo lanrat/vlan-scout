@@ -31,6 +31,8 @@ The tool passively listens for network activity while optionally sending active 
 
 Download the latest release from the [GitHub releases page](https://github.com/lanrat/vlan-scout/releases).
 
+For OpenWrt/LEDE routers and other musl-based systems, use `vlan-scout-musl_linux_amd64.tar.gz`, `vlan-scout-musl_linux_arm64.tar.gz` (64-bit ARM), or `vlan-scout-musl_linux_armv7.tar.gz` (32-bit ARMv7 hard-float, e.g. ipq40xx/Cortex-A7). The armv7 archive is fully static.
+
 ### Build from Source
 
 **Prerequisites:**
@@ -61,7 +63,7 @@ go build
 
 ### Cross-Platform Releases
 
-Cross-platform builds for Linux (amd64, arm64, and armhf) and Windows (amd64) are automatically built and released via GitHub Actions using Zig for cross-compilation. Each Linux target also has a musl build for OpenWrt: `vlan-scout-musl_linux_amd64.tar.gz`, `vlan-scout-musl_linux_arm64.tar.gz`, and `vlan-scout-musl_linux_armv7.tar.gz`. The deb, rpm, and apk packages are glibc builds and do not run on OpenWrt. macOS arm64 and amd64 binaries are built natively in the macOS workflow and attached to the same release.
+Cross-platform builds for Linux (amd64, arm64, and armhf) and Windows (amd64) are automatically built and released via GitHub Actions using Zig for cross-compilation. Each Linux target also has a musl build for OpenWrt: `vlan-scout-musl_linux_amd64.tar.gz`, `vlan-scout-musl_linux_arm64.tar.gz`, and `vlan-scout-musl_linux_armv7.tar.gz`. The armv7 musl archive is fully static. The deb, rpm, and apk packages are glibc builds and do not run on OpenWrt. macOS arm64 and amd64 binaries are built natively in the macOS workflow and attached to the same release.
 
 **For local development**, use `go build` to build for your native platform. Cross-compilation with CGO dependencies requires Zig and is not recommended for local builds.
 

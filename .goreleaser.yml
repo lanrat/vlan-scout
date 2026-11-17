@@ -153,6 +153,8 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
 
+  # Fully static 32-bit ARMv7 (hard-float) musl build for OpenWrt/LEDE routers
+  # (e.g. ipq40xx / Cortex-A7) and other musl armhf systems such as Alpine.
   - id: vlan-scout-armv7-musl
     main: .
     binary: vlan-scout-musl
@@ -171,15 +173,16 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X main.version={{.Version}}
+      - -s -w -X main.version={{.Version}} -linkmode=external -extldflags=-static
 
 nfpms:
   - id: vlan-scout
-    # Package info
+    # Only package the glibc builds; the musl builds are shipped as archives.
     ids:
       - vlan-scout-amd64
       - vlan-scout-arm64
       - vlan-scout-armhf
+    # Package info
     maintainer: lanrat
     homepage: https://github.com/lanrat/vlan-scout
     description: |-
@@ -212,7 +215,7 @@ archives:
       - vlan-scout-amd64-musl
       - vlan-scout-arm64-musl
       - vlan-scout-armv7-musl
-    name_template: "{{ .ProjectName }}-musl_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    name_template: "{{ .ProjectName }}-musl_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
 
 checksum:
   name_template: 'checksums.txt'
