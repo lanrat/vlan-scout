@@ -32,7 +32,7 @@ var (
 	printPackets = flag.Bool("print-packets", false, "print each captured packet")
 	hostname     = flag.String("hostname", "vlan-scout", "hostname option sent in DHCP requests")
 	verbose      = flag.Bool("verbose", false, "print probe and capture progress")
-	toJSON       = flag.Bool("json", false, "print discoveries as JSON")
+	toJSON       = flag.Bool("json", false, "print scan results, or with -list the interfaces, as JSON")
 	randomMAC    = flag.Bool("random-mac", false, "use a random unicast locally administered MAC instead of -mac")
 	showVersion  = flag.Bool("version", false, "print the version and exit")
 	workers      = flag.Int("workers", 10, "parallel workers for active VLAN probes")
@@ -54,7 +54,7 @@ func usage() {
 
 Usage:
   %s -iface <name> [options]
-  %s -list [-a]
+  %s -list [-a] [-json]
   %s -version
 
 Opening the interface requires permission to capture packets. On macOS and Linux, run it with sudo.
@@ -67,12 +67,13 @@ Omit -vlans to probe the untagged network and VLAN IDs 1-4094. After active prob
 Examples:
   sudo %s -list
   sudo %s -list -a
+  sudo %s -list -json
   sudo %s -iface en0
   sudo %s -iface en0 -all -random-mac -hostname computer101
   sudo %s -iface en0 -dhcp -vlans 1,10,20-30
 
 Options:
-`, name, name, name, name, name, name, name, name)
+`, name, name, name, name, name, name, name, name, name)
 	if err != nil {
 		return
 	}
@@ -296,13 +297,20 @@ func printDevices() {
 	check(err)
 
 	macs := interfaceMACs()
+	shown := make([]pcap.Interface, 0, len(devices))
+	for _, device := range devices {
+		if showDevice(device.Name, device.Flags) {
+			shown = append(shown, device)
+		}
+	}
+	if *toJSON {
+		fmt.Println(devicesToJSON(shown, macs))
+		return
+	}
 
 	// Print device information
 	fmt.Println("Devices found:")
-	for _, device := range devices {
-		if !showDevice(device.Name, device.Flags) {
-			continue
-		}
+	for _, device := range shown {
 		fmt.Println("\nName: ", device.Name)
 		if mac := macs[device.Name]; mac != "" {
 			fmt.Println("MAC address: ", mac)

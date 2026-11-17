@@ -78,8 +78,9 @@ func TestUsageIncludesHowToRun(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		os.Args[0] + " -iface <name>",
-		os.Args[0] + " -list [-a]",
+		os.Args[0] + " -list [-a] [-json]",
 		os.Args[0] + " -list -a",
+		os.Args[0] + " -list -json",
 		os.Args[0] + " -version",
 		"-all",
 		"-random-mac",

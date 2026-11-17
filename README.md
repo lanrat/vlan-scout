@@ -83,6 +83,15 @@ This omits unplugged interfaces. On macOS it also omits interfaces whose driver 
 sudo ./vlan-scout -list -a
 ```
 
+**List interfaces as JSON:**
+
+```bash
+sudo ./vlan-scout -list -json
+sudo ./vlan-scout -list -a -json
+```
+
+`-json` with `-list` prints that same set of interfaces. During a scan, `-json` prints the discoveries instead.
+
 **Basic VLAN discovery (passive monitoring):**
 
 ```bash
@@ -122,7 +131,7 @@ vlan-scout discovers VLANs on an interface. It listens for DHCP, router advertis
 
 Usage:
   vlan-scout -iface <name> [options]
-  vlan-scout -list [-a]
+  vlan-scout -list [-a] [-json]
   vlan-scout -version
 
 Opening the interface requires permission to capture packets. On macOS and Linux, run it with sudo.
@@ -135,6 +144,7 @@ Omit -vlans to probe the untagged network and VLAN IDs 1-4094. After active prob
 Examples:
   sudo vlan-scout -list
   sudo vlan-scout -list -a
+  sudo vlan-scout -list -json
   sudo vlan-scout -iface en0
   sudo vlan-scout -iface en0 -all -random-mac -hostname computer101
   sudo vlan-scout -iface en0 -dhcp -vlans 1,10,20-30
@@ -153,7 +163,7 @@ Options:
   -iface string
         interface to capture on (required to scan)
   -json
-        print discoveries as JSON
+        print scan results, or with -list the interfaces, as JSON
   -list
         list interfaces and exit
   -mac string
@@ -178,6 +188,38 @@ Options:
 
 ## Output Examples
 
+### Interface list (`-list -json`)
+
+```json
+{
+  "devices": [
+    {
+      "name": "en0",
+      "description": "",
+      "mac": "4a:d3:b9:45:e5:ce",
+      "flags": {
+        "up": true,
+        "running": true,
+        "loopback": false,
+        "wireless": false,
+        "connection": "connected"
+      },
+      "vlan_capable": true,
+      "addresses": [
+        {
+          "ip": "192.168.1.10",
+          "netmask": "255.255.255.0",
+          "prefix": 24,
+          "broadcast": "192.168.1.255"
+        }
+      ]
+    }
+  ]
+}
+```
+
+`mac` is omitted when the interface has no hardware address. `broadcast` and `peer` are omitted when the system does not report them. `vlan_capable` is included on macOS, where the driver reports whether it can carry an 802.1Q tag.
+
 ### Human-readable Format
 
 ```text
@@ -192,12 +234,14 @@ VLAN 100:
   └─ CDP Device: Router-01 (Port: FastEthernet0/1) [Router] - IPs: 192.168.100.1
 
 VLAN 200:
-  ├─ IPv4 DHCP: 10.0.200.0/24 (GW: 10.0.200.1, Server: 10.0.200.5)
-  ├─ IPv4 Hosts: 10.0.200.15, 10.0.200.30
-  └─ LLDP Device: switch-core.lan (Port: eth2) [Bridge] - IPs: 10.0.200.1
+  ├─ IPv4 DHCP: 192.168.200.0/24 (GW: 192.168.200.1, Server: 192.168.200.5)
+  ├─ IPv6 SLAAC: 2001:db8:200::/64 (GW: fe80::1)
+  ├─ IPv4 Hosts: 192.168.200.15, 192.168.200.30
+  ├─ IPv6 Hosts: 2001:db8:200::5
+  └─ LLDP Device: switch-core.lan (Port: eth2) [Bridge] - IPs: 192.168.200.1
 ```
 
-### JSON Format
+### Scan results (`-json`)
 
 ```json
 {
@@ -229,12 +273,17 @@ VLAN 200:
     },
     "200": {
       "ipv4_dhcp": {
-        "ip": "10.0.200.0/24",
-        "gateway": "10.0.200.1",
-        "server": "10.0.200.5"
+        "ip": "192.168.200.0/24",
+        "gateway": "192.168.200.1",
+        "server": "192.168.200.5"
+      },
+      "ipv6_slaac": {
+        "ip": "2001:db8:200::/64",
+        "gateway": "fe80::1"
       },
       "hosts": {
-        "ipv4": ["10.0.200.15", "10.0.200.30"]
+        "ipv4": ["192.168.200.15", "192.168.200.30"],
+        "ipv6": ["2001:db8:200::5"]
       },
       "devices": [
         {
@@ -242,7 +291,7 @@ VLAN 200:
           "port": "FastEthernet0/1",
           "type": "CDP", 
           "description": "Cisco 2960 running IOS 12.2",
-          "mgmt_ips": ["10.0.200.1"],
+          "mgmt_ips": ["192.168.200.1"],
           "capabilities": ["Router"],
           "native_vlan": 200
         }
