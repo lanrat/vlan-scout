@@ -99,6 +99,7 @@ jobs:
       - name: Attach binaries and checksums
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
