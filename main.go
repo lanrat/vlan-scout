@@ -149,12 +149,11 @@ func main() {
 		*macAddress = GenerateRandomMAC()
 		log.Printf("Using random MAC address %s", *macAddress)
 	}
-	// normalize mac address
-	*macAddress = strings.ToLower(*macAddress)
-	if err := validateSourceMAC(*macAddress); err != nil {
+	mac, err := canonicalSourceMAC(*macAddress)
+	if err != nil {
 		usageError("%s", err.Error())
 	}
-	var err error
+	*macAddress = mac
 	vlansToScan, err = parseVlanList(*vlanList)
 	if err != nil {
 		usageError("%s", err.Error())

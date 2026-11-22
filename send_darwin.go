@@ -39,6 +39,14 @@ static pcap_t *open_spoof_pcap(const char *iface, int *fd_out, char *errbuf) {
 		return NULL;
 	}
 
+	// This handle only writes. Accept no packets so the kernel does not copy
+	// every frame on the interface into a buffer that nothing reads. The
+	// program is "ret #0" (BPF_RET | BPF_K, k = 0). Read filters do not affect
+	// writes. A failure here only costs buffer copies, so it is not fatal.
+	struct bpf_insn reject_all = { 0x06, 0, 0, 0 };
+	struct bpf_program reject_prog = { 1, &reject_all };
+	(void)pcap_setfilter(p, &reject_prog);
+
 	*fd_out = fd;
 	return p;
 }

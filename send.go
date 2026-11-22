@@ -108,8 +108,17 @@ func openPcapFrameWriter() (frameWriter, error) {
 	if err != nil {
 		return nil, err
 	}
+	// This handle only writes. Without a filter the kernel would still copy
+	// every frame on the interface into its buffer, which nothing reads.
+	if err := handle.SetBPFInstructionFilter(rejectAllFilter); err != nil {
+		v("inject handle: could not set reject-all filter: %v", err)
+	}
 	return &pcapFrameWriter{handle: handle}, nil
 }
+
+// rejectAllFilter is a one-instruction BPF program, "ret #0", that accepts no
+// packets. Read filters do not affect frames written to the handle.
+var rejectAllFilter = []pcap.BPFInstruction{{Code: 0x06}} // BPF_RET | BPF_K, K = 0
 
 func (w *pcapFrameWriter) WriteFrame(data []byte) error {
 	return w.handle.WritePacketData(data)

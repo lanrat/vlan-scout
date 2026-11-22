@@ -65,6 +65,18 @@ func validateSourceMAC(mac string) error {
 	return nil
 }
 
+// canonicalSourceMAC validates mac as a probe source address and returns it
+// in lowercase colon form. net.ParseMAC also accepts forms such as
+// 12-34-56-78-90-ab and 1234.5678.90ab, but the rest of the program compares
+// against net.HardwareAddr.String(), which is always colon form.
+func canonicalSourceMAC(mac string) (string, error) {
+	if err := validateSourceMAC(mac); err != nil {
+		return "", err
+	}
+	hw, _ := net.ParseMAC(mac)
+	return hw.String(), nil
+}
+
 // interfaceHardware returns the 6-byte Ethernet address of name, or nil when
 // the interface has none.
 func interfaceHardware(name string) net.HardwareAddr {

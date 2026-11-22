@@ -217,6 +217,10 @@ archives:
       - vlan-scout-armv7-musl
     name_template: "{{ .ProjectName }}-musl_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
 
+release:
+  # Tags such as v1.1.0-rc.1 publish as pre-releases instead of the latest release.
+  prerelease: auto
+
 checksum:
   name_template: 'checksums.txt'
 
