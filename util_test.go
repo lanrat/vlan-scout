@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -383,5 +384,94 @@ func TestValidateSourceMAC(t *testing.T) {
 	}
 	if err := validateSourceMAC("not-a-mac"); err == nil {
 		t.Fatal("expected invalid address to be rejected")
+	}
+}
+
+func TestCanonicalSourceMAC(t *testing.T) {
+	for _, in := range []string{
+		"12:34:56:78:90:ab",
+		"12:34:56:78:90:AB",
+		"12-34-56-78-90-ab",
+		"1234.5678.90ab",
+	} {
+		got, err := canonicalSourceMAC(in)
+		if err != nil {
+			t.Errorf("canonicalSourceMAC(%q): %v", in, err)
+			continue
+		}
+		if got != "12:34:56:78:90:ab" {
+			t.Errorf("canonicalSourceMAC(%q) = %q, want 12:34:56:78:90:ab", in, got)
+		}
+		// HandlePacket compares the probe MAC with SrcMAC.String().
+		hw, _ := net.ParseMAC(in)
+		if hw.String() != got {
+			t.Errorf("canonicalSourceMAC(%q) = %q, does not match HardwareAddr.String() %q", in, got, hw.String())
+		}
+	}
+	for _, bad := range []string{"01-00-00-00-00-01", "not-a-mac", "00:00:00:00:fe:80:00:00:00:00:00:00:02:00:5e:10:00:00:00:01"} {
+		if _, err := canonicalSourceMAC(bad); err == nil {
+			t.Errorf("canonicalSourceMAC(%q): expected an error", bad)
+		}
+	}
+}
+
+// TestPcapFrameWriterCapturesNothing checks that the write-only handle keeps
+// sending frames while its reject-all filter keeps the kernel from queueing
+// captured traffic on it. It needs permission to capture on loopback.
+func TestPcapFrameWriterCapturesNothing(t *testing.T) {
+	const lo = "lo"
+	if _, err := net.InterfaceByName(lo); err != nil {
+		t.Skipf("no %s interface", lo)
+	}
+	orig := *iface
+	*iface = lo
+	t.Cleanup(func() { *iface = orig })
+
+	fw, err := openPcapFrameWriter()
+	if err != nil {
+		t.Skipf("cannot open %s for injection (needs capture permission): %v", lo, err)
+	}
+	defer fw.Close()
+	w := fw.(*pcapFrameWriter)
+
+	reader, err := pcap.OpenLive(lo, 65535, false, 100*time.Millisecond)
+	if err != nil {
+		t.Skipf("cannot capture on %s: %v", lo, err)
+	}
+	defer reader.Close()
+	src := net.HardwareAddr{0x02, 0x76, 0x73, 0x74, 0x65, 0x73}
+	if err := reader.SetBPFFilter("ether src " + src.String()); err != nil {
+		t.Fatal(err)
+	}
+
+	eth := &layers.Ethernet{SrcMAC: src, DstMAC: layers.EthernetBroadcast, EthernetType: layers.EthernetType(0x88b5)}
+	buf := gopacket.NewSerializeBuffer()
+	if err := gopacket.SerializeLayers(buf, gopacket.SerializeOptions{}, eth, gopacket.Payload(make([]byte, 46))); err != nil {
+		t.Fatal(err)
+	}
+	const sent = 5
+	for i := 0; i < sent; i++ {
+		if err := w.WriteFrame(buf.Bytes()); err != nil {
+			t.Fatalf("WriteFrame: %v", err)
+		}
+	}
+
+	seen := 0
+	deadline := time.Now().Add(2 * time.Second)
+	for seen < sent && time.Now().Before(deadline) {
+		if _, _, err := reader.ReadPacketData(); err == nil {
+			seen++
+		}
+	}
+	if seen == 0 {
+		t.Fatal("frames written through the inject handle were not seen on the wire")
+	}
+
+	stats, err := w.handle.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.PacketsReceived != 0 {
+		t.Fatalf("inject handle queued %d captured packets, want 0", stats.PacketsReceived)
 	}
 }
