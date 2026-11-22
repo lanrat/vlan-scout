@@ -3,11 +3,9 @@ package main
 import (
 	"fmt"
 	"net"
-	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	"github.com/google/gopacket/pcap"
 )
 
 // sendRouterSolicitation constructs and sends an ICMPv6 Router Solicitation packet
@@ -82,14 +80,7 @@ func sendRouterSolicitation(vlanID uint16) error {
 		return fmt.Errorf("failed to serialize layers: %w", err)
 	}
 
-	// Send packet using a temporary pcap handle, consistent with dhcp.go
-	handle, err := pcap.OpenLive(*iface, int32(65535), false, 100*time.Millisecond)
-	if err != nil {
-		return fmt.Errorf("pcap.OpenLive failed: %w", err)
-	}
-	defer handle.Close()
-
-	if err := handle.WritePacketData(buf.Bytes()); err != nil {
+	if err := writeFrame(buf.Bytes()); err != nil {
 		return fmt.Errorf("failed to write packet data: %w", err)
 	}
 

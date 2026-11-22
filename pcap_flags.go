@@ -14,6 +14,20 @@ const (
 	PCAP_IF_CONNECTION_STATUS_NOT_APPLICABLE = 0x00000030 // not applicable
 )
 
+// interfaceIsInactive reports whether flags describe an interface ifconfig
+// would show as "status: inactive", or a down interface whose connection
+// status does not apply.
+func interfaceIsInactive(flags uint32) bool {
+	switch flags & PCAP_IF_CONNECTION_STATUS {
+	case PCAP_IF_CONNECTION_STATUS_DISCONNECTED:
+		return true
+	case PCAP_IF_CONNECTION_STATUS_NOT_APPLICABLE:
+		return flags&PCAP_IF_UP == 0
+	default:
+		return false
+	}
+}
+
 // GetFlags converts PCap interface flags to a human-readable string representation.
 // Returns a formatted string like "[UP,RUNNING]" or "NONE" if no flags are set.
 func GetFlags(flags uint32) string {

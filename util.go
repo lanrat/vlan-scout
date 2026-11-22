@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"fmt"
 	"log"
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/google/gopacket/layers"
 )
 
 // v prints verbose output when the verbose flag is enabled.
@@ -29,31 +32,99 @@ func check(err error) {
 	}
 }
 
-// GenerateRandomMAC generates a random MAC address.
-// A MAC address is a 6-byte identifier. This function creates a byte slice of
-// length 6 and fills it with random values using the crypto/rand package,
-// which is suitable for cryptographic operations.
-// It then formats the byte slice into the standard MAC address format
-// (e.g., 00:1B:44:11:3A:B7).
+// GenerateRandomMAC returns a random unicast, locally administered MAC address.
+// The I/G bit (least significant bit of the first octet) must be clear.
+// A multicast source address is not a valid station address; switches and
+// macOS drop those frames, so probes sent with one get no replies.
 func GenerateRandomMAC() string {
-	// Create a 6-byte slice to hold the MAC address.
 	buf := make([]byte, 6)
+	if _, err := rand.Read(buf); err != nil {
+		log.Fatalf("generate random MAC: %v", err)
+	}
 
-	// Read random bytes into the buffer.
-	// rand.Read is a cryptographically secure random number generator.
-	_, _ = rand.Read(buf)
+	// U/L (0x02) = locally administered. I/G (0x01) = multicast; force it off.
+	buf[0] = (buf[0] | 0x02) &^ 0x01
 
-	// To ensure it's a locally administered, unicast address,
-	// set the second-least-significant bit of the first byte.
-	// This prevents conflicts with universally administered addresses.
-	buf[0] |= 2
-
-	// Format the byte slice into a MAC address string.
-	// The format is XX:XX:XX:XX:XX:XX.
-	macAddress := fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x",
+	return fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x",
 		buf[0], buf[1], buf[2], buf[3], buf[4], buf[5])
+}
 
-	return macAddress
+// validateSourceMAC reports an error when mac cannot be used as an Ethernet
+// source address for probes.
+func validateSourceMAC(mac string) error {
+	hw, err := net.ParseMAC(mac)
+	if err != nil {
+		return fmt.Errorf("invalid MAC address %q: %w", mac, err)
+	}
+	if len(hw) != 6 {
+		return fmt.Errorf("MAC address %s must be a 6-byte Ethernet address", mac)
+	}
+	if hw[0]&0x01 != 0 {
+		return fmt.Errorf("MAC address %s is multicast; probes need a unicast source address", mac)
+	}
+	return nil
+}
+
+// interfaceHardware returns the 6-byte Ethernet address of name, or nil when
+// the interface has none.
+func interfaceHardware(name string) net.HardwareAddr {
+	ifi, err := net.InterfaceByName(name)
+	if err != nil || len(ifi.HardwareAddr) != 6 {
+		return nil
+	}
+	return append(net.HardwareAddr(nil), ifi.HardwareAddr...)
+}
+
+// captureFilter selects VLAN traffic, probes sent from mac, and the
+// discovery multicasts. hw is matched only as the destination of replies
+// to probes (DHCPv4, DHCPv6, and router advertisements), so the rest of
+// this machine's traffic is left out of the capture.
+//
+// vlan must be the last term. libpcap shifts every later offset by the
+// 4-byte tag once it compiles vlan, so a port or ICMPv6 test after it would
+// read the wrong bytes in an untagged frame.
+func captureFilter(mac string, hw net.HardwareAddr) string {
+	filter := "ether host " + mac + " or ether multicast or ether dst 01:80:c2:00:00:0e or ether dst 01:00:0c:cc:cc:cc"
+	if len(hw) == 6 && !strings.EqualFold(hw.String(), mac) {
+		filter += " or (ether dst " + hw.String() + " and (udp port 68 or udp port 546 or icmp6[icmp6type] == icmp6-routeradvert))"
+	}
+	return filter + " or vlan"
+}
+
+// frameFromUs reports whether src is the probe MAC or the interface MAC.
+func frameFromUs(src net.HardwareAddr) bool {
+	if clientHWIsProbe(src) {
+		return true
+	}
+	return len(ifaceHW) == 6 && len(src) >= 6 && bytes.Equal(src[:6], ifaceHW[:6])
+}
+
+// clientHWIsProbe reports whether chaddr is the MAC this scan sends probes from.
+func clientHWIsProbe(chaddr net.HardwareAddr) bool {
+	probe, err := net.ParseMAC(*macAddress)
+	if err != nil || len(probe) != 6 || len(chaddr) < 6 {
+		return false
+	}
+	return bytes.Equal(chaddr[:6], probe)
+}
+
+// dhcpv6ClientIsProbe reports whether a DHCPv6 message echoes the probe's
+// DUID-LL. Replies for other clients are not this scan's addresses.
+func dhcpv6ClientIsProbe(opts layers.DHCPv6Options) bool {
+	for _, opt := range opts {
+		if opt.Code != layers.DHCPv6OptClientID {
+			continue
+		}
+		var duid layers.DHCPv6DUID
+		if err := duid.DecodeFromBytes(opt.Data); err != nil {
+			return false
+		}
+		if duid.Type != layers.DHCPv6DUIDTypeLL {
+			return false
+		}
+		return clientHWIsProbe(duid.LinkLayerAddress)
+	}
+	return false
 }
 
 // macToLinkLocal generates an IPv6 link-local address from a MAC address
@@ -101,9 +172,10 @@ func IP2IPNet(ip net.IP, mask net.IPMask) net.IPNet {
 // Returns a slice of VLAN IDs to scan.
 func parseVlanList(vlanStr string) ([]uint16, error) {
 	if vlanStr == "" {
-		// Return full range if no specific VLANs specified
-		vlans := make([]uint16, 0, VLAN_MAX-VLAN_MIN)
-		for i := VLAN_MIN; i < VLAN_MAX; i++ {
+		// 0 is the untagged network. Tagged IDs run through 4094.
+		vlans := make([]uint16, 0, VLAN_MAX-VLAN_MIN+2)
+		vlans = append(vlans, 0)
+		for i := VLAN_MIN; i <= VLAN_MAX; i++ {
 			vlans = append(vlans, uint16(i))
 		}
 		return vlans, nil
@@ -136,11 +208,11 @@ func parseVlanList(vlanStr string) ([]uint16, error) {
 			}
 
 			// Validate range
-			if start < VLAN_MIN || start > VLAN_MAX {
-				return nil, fmt.Errorf("start VLAN %d out of valid range (%d-%d)", start, VLAN_MIN, VLAN_MAX)
+			if err := validateVLAN(start); err != nil {
+				return nil, fmt.Errorf("start VLAN %d out of valid range (0-%d)", start, VLAN_MAX)
 			}
-			if end < VLAN_MIN || end > VLAN_MAX {
-				return nil, fmt.Errorf("end VLAN %d out of valid range (%d-%d)", end, VLAN_MIN, VLAN_MAX)
+			if err := validateVLAN(end); err != nil {
+				return nil, fmt.Errorf("end VLAN %d out of valid range (0-%d)", end, VLAN_MAX)
 			}
 			if start > end {
 				return nil, fmt.Errorf("invalid range: start %d > end %d", start, end)
@@ -157,8 +229,8 @@ func parseVlanList(vlanStr string) ([]uint16, error) {
 				return nil, fmt.Errorf("invalid VLAN ID: %s", part)
 			}
 
-			if vlan < VLAN_MIN || vlan > VLAN_MAX {
-				return nil, fmt.Errorf("VLAN %d out of valid range (%d-%d)", vlan, VLAN_MIN, VLAN_MAX)
+			if err := validateVLAN(vlan); err != nil {
+				return nil, err
 			}
 
 			vlans = append(vlans, uint16(vlan))
@@ -166,4 +238,27 @@ func parseVlanList(vlanStr string) ([]uint16, error) {
 	}
 
 	return vlans, nil
+}
+
+// validateVLAN accepts 0 for the untagged network and 1-4094 for tagged VLANs.
+func validateVLAN(id int) error {
+	if id == 0 || (id >= VLAN_MIN && id <= VLAN_MAX) {
+		return nil
+	}
+	return fmt.Errorf("VLAN %d out of valid range (0-%d); 0 is the untagged network", id, VLAN_MAX)
+}
+
+// rememberProbeAddresses keeps the probe's own IPv6 link-local address out of host lists.
+func rememberProbeAddresses(mac string) {
+	hw, err := net.ParseMAC(mac)
+	if err != nil {
+		return
+	}
+	ip, err := macToLinkLocal(hw)
+	if err != nil {
+		return
+	}
+	for _, vlan := range vlansToScan {
+		findings.MarkOwnIP(vlan, ip)
+	}
 }

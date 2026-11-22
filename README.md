@@ -31,7 +31,7 @@ The tool passively listens for network activity while optionally sending active 
 
 Download the latest release from the [GitHub releases page](https://github.com/lanrat/vlan-scout/releases).
 
-For OpenWrt/LEDE routers and other musl-based systems, use the fully static `vlan-scout-musl_linux_arm64.tar.gz` (64-bit ARM) or `vlan-scout-musl_linux_armv7.tar.gz` (32-bit ARMv7 hard-float, e.g. ipq40xx/Cortex-A7) builds. They have no runtime dependencies.
+For OpenWrt/LEDE routers and other musl-based systems, use `vlan-scout-musl_linux_amd64.tar.gz`, `vlan-scout-musl_linux_arm64.tar.gz` (64-bit ARM), or `vlan-scout-musl_linux_armv7.tar.gz` (32-bit ARMv7 hard-float, e.g. ipq40xx/Cortex-A7). The armv7 archive is fully static.
 
 ### Build from Source
 
@@ -63,7 +63,7 @@ go build
 
 ### Cross-Platform Releases
 
-Cross-platform builds for Linux (amd64/arm64/armhf, plus static musl arm64/armv7) and Windows (amd64) are automatically built and released via GitHub Actions using Zig for cross-compilation.
+Cross-platform builds for Linux (amd64, arm64, and armhf) and Windows (amd64) are automatically built and released via GitHub Actions using Zig for cross-compilation. Each Linux target also has a musl build for OpenWrt: `vlan-scout-musl_linux_amd64.tar.gz`, `vlan-scout-musl_linux_arm64.tar.gz`, and `vlan-scout-musl_linux_armv7.tar.gz`. The armv7 musl archive is fully static. The deb, rpm, and apk packages are glibc builds and do not run on OpenWrt. macOS arm64 and amd64 binaries are built in that same release and attached to it.
 
 **For local development**, use `go build` to build for your native platform. Cross-compilation with CGO dependencies requires Zig and is not recommended for local builds.
 
@@ -71,11 +71,28 @@ Cross-platform builds for Linux (amd64/arm64/armhf, plus static musl arm64/armv7
 
 ### Quick Start
 
-**List available network interfaces:**
+**List interfaces that can be scanned:**
 
 ```bash
 sudo ./vlan-scout -list
 ```
+
+This omits unplugged interfaces. On macOS it also omits interfaces whose driver cannot carry an 802.1Q tag, such as `utun`, loopback, and AWDL. Each entry includes a MAC address when the interface has one.
+
+**List every interface:**
+
+```bash
+sudo ./vlan-scout -list -a
+```
+
+**List interfaces as JSON:**
+
+```bash
+sudo ./vlan-scout -list -json
+sudo ./vlan-scout -list -a -json
+```
+
+`-json` with `-list` prints that same set of interfaces. During a scan, `-json` prints the discoveries instead.
 
 **Basic VLAN discovery (passive monitoring):**
 
@@ -109,43 +126,101 @@ sudo ./vlan-scout -iface eth0 -all -json
 
 ### Command Line Options
 
+Run `vlan-scout -h` to print this guide. Starting a scan without `-iface`, or with a bad MAC, VLAN list, or extra argument, prints the error and then the same guide.
+
 ```text
-Usage of ./vlan-scout:
+vlan-scout discovers VLANs on an interface. It listens for DHCP, router advertisements, ARP, NDP, LLDP, and CDP, and can send probes to draw out quiet networks.
+
+Usage:
+  vlan-scout -iface <name> [options]
+  vlan-scout -list [-a] [-json]
+  vlan-scout -version
+
+Opening the interface requires permission to capture packets. On macOS and Linux, run it with sudo.
+
+With no probe flags, vlan-scout only listens until Ctrl+C.
+-all sends DHCPv4 discovers, DHCPv6 solicits, and IPv6 router solicitations.
+-dhcp6 also sends router solicitations.
+Omit -vlans to probe the untagged network and VLAN IDs 1-4094. After active probes finish, vlan-scout waits 3s for replies unless -timeout is set.
+
+Examples:
+  sudo vlan-scout -list
+  sudo vlan-scout -list -a
+  sudo vlan-scout -list -json
+  sudo vlan-scout -iface en0
+  sudo vlan-scout -iface en0 -all -random-mac -hostname computer101
+  sudo vlan-scout -iface en0 -dhcp -vlans 1,10,20-30
+
+Options:
+  -a
+        with -list, show every interface
   -all
-     enable all active discovery methods (dhcp + dhcp6 + ra)
+        send DHCPv4, DHCPv6, and router solicitations
   -dhcp
-     enable DHCP requests
+        send DHCPv4 discovers
   -dhcp6
-     enable IPv6 DHCP requests
+        send DHCPv6 solicits (also sends router solicitations)
   -hostname string
-     hostname to use for dhcp requests (default "vlan-scout")
+        hostname option sent in DHCP requests (default "vlan-scout")
   -iface string
-     interface to test
+        interface to capture on (required to scan)
   -json
-     output to json
+        print scan results, or with -list the interfaces, as JSON
   -list
-     print interface list and exit
+        list interfaces and exit
   -mac string
-     mac address to use for dhcp requests (default "12:34:56:78:90:AB")
+        unicast source MAC for probes (default "12:34:56:78:90:AB")
   -print-packets
-     print packets for debugging
+        print each captured packet
   -ra
-     request IPv6 router advertisements
+        send IPv6 router solicitations
   -random-mac
-     use random mac address
+        use a random unicast locally administered MAC instead of -mac
   -timeout duration
-     timeout to wait for responses
+        how long to listen (0 waits until Ctrl+C, or 3s after active probes finish)
   -verbose
-     print verbose output
+        print probe and capture progress
   -version
-     print version and exit
+        print the version and exit
   -vlans string
-     comma-separated VLAN list (e.g., 1,2,4,60-70,90), defaults to all
+        VLAN IDs and ranges to probe, such as 1,2,4,60-70 (default: all)
   -workers int
-     number of parallel workers for VLAN scanning (default 10)
+        parallel workers for active VLAN probes (default 10)
 ```
 
 ## Output Examples
+
+### Interface list (`-list -json`)
+
+```json
+{
+  "devices": [
+    {
+      "name": "en0",
+      "description": "",
+      "mac": "4a:d3:b9:45:e5:ce",
+      "flags": {
+        "up": true,
+        "running": true,
+        "loopback": false,
+        "wireless": false,
+        "connection": "connected"
+      },
+      "vlan_capable": true,
+      "addresses": [
+        {
+          "ip": "192.168.1.10",
+          "netmask": "255.255.255.0",
+          "prefix": 24,
+          "broadcast": "192.168.1.255"
+        }
+      ]
+    }
+  ]
+}
+```
+
+`mac` is omitted when the interface has no hardware address. `broadcast` and `peer` are omitted when the system does not report them. `vlan_capable` is included on macOS, where the driver reports whether it can carry an 802.1Q tag.
 
 ### Human-readable Format
 
@@ -161,12 +236,14 @@ VLAN 100:
   └─ CDP Device: Router-01 (Port: FastEthernet0/1) [Router] - IPs: 192.168.100.1
 
 VLAN 200:
-  ├─ IPv4 DHCP: 10.0.200.0/24 (GW: 10.0.200.1, Server: 10.0.200.5)
-  ├─ IPv4 Hosts: 10.0.200.15, 10.0.200.30
-  └─ LLDP Device: switch-core.lan (Port: eth2) [Bridge] - IPs: 10.0.200.1
+  ├─ IPv4 DHCP: 192.168.200.0/24 (GW: 192.168.200.1, Server: 192.168.200.5)
+  ├─ IPv6 SLAAC: 2001:db8:200::/64 (GW: fe80::1)
+  ├─ IPv4 Hosts: 192.168.200.15, 192.168.200.30
+  ├─ IPv6 Hosts: 2001:db8:200::5
+  └─ LLDP Device: switch-core.lan (Port: eth2) [Bridge] - IPs: 192.168.200.1
 ```
 
-### JSON Format
+### Scan results (`-json`)
 
 ```json
 {
@@ -198,12 +275,17 @@ VLAN 200:
     },
     "200": {
       "ipv4_dhcp": {
-        "ip": "10.0.200.0/24",
-        "gateway": "10.0.200.1",
-        "server": "10.0.200.5"
+        "ip": "192.168.200.0/24",
+        "gateway": "192.168.200.1",
+        "server": "192.168.200.5"
+      },
+      "ipv6_slaac": {
+        "ip": "2001:db8:200::/64",
+        "gateway": "fe80::1"
       },
       "hosts": {
-        "ipv4": ["10.0.200.15", "10.0.200.30"]
+        "ipv4": ["192.168.200.15", "192.168.200.30"],
+        "ipv6": ["2001:db8:200::5"]
       },
       "devices": [
         {
@@ -211,7 +293,7 @@ VLAN 200:
           "port": "FastEthernet0/1",
           "type": "CDP", 
           "description": "Cisco 2960 running IOS 12.2",
-          "mgmt_ips": ["10.0.200.1"],
+          "mgmt_ips": ["192.168.200.1"],
           "capabilities": ["Router"],
           "native_vlan": 200
         }
