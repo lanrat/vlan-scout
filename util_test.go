@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
 )
@@ -65,6 +66,81 @@ func TestCaptureFilterMatchesInterfaceOnlyForProbeReplies(t *testing.T) {
 	f = captureFilter(hw.String(), hw)
 	if strings.Contains(f, "udp port 68") {
 		t.Fatalf("probe MAC is the interface MAC, so no extra clause is needed: %s", f)
+	}
+}
+
+// filterFrame builds an Ethernet frame from src to dst, tagged with vlan when
+// vlan is non-zero, carrying the given network and transport layers.
+func filterFrame(t *testing.T, src, dst net.HardwareAddr, vlan uint16, ls ...gopacket.SerializableLayer) []byte {
+	t.Helper()
+	eth := &layers.Ethernet{SrcMAC: src, DstMAC: dst}
+	var stack []gopacket.SerializableLayer
+	next := layers.EthernetTypeIPv4
+	if _, ok := ls[0].(*layers.IPv6); ok {
+		next = layers.EthernetTypeIPv6
+	}
+	if vlan != 0 {
+		eth.EthernetType = layers.EthernetTypeDot1Q
+		stack = append(stack, eth, &layers.Dot1Q{VLANIdentifier: vlan, Type: next})
+	} else {
+		eth.EthernetType = next
+		stack = append(stack, eth)
+	}
+	stack = append(stack, ls...)
+	buf := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{FixLengths: true, ComputeChecksums: true}
+	if err := gopacket.SerializeLayers(buf, opts, stack...); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestCaptureFilterMatchesFrames(t *testing.T) {
+	const probe = "02:00:00:00:00:01"
+	hw := net.HardwareAddr{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}
+	router := net.HardwareAddr{0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0xee}
+	bpf, err := pcap.NewBPF(layers.LinkTypeEthernet, 65535, captureFilter(probe, hw))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dhcpReply := func(vlan uint16) []byte {
+		ip := &layers.IPv4{Version: 4, TTL: 64, Protocol: layers.IPProtocolUDP,
+			SrcIP: net.IPv4(192, 168, 1, 1), DstIP: net.IPv4(192, 168, 1, 10)}
+		udp := &layers.UDP{SrcPort: 67, DstPort: 68}
+		check(udp.SetNetworkLayerForChecksum(ip))
+		return filterFrame(t, router, hw, vlan, ip, udp, gopacket.Payload(make([]byte, 240)))
+	}
+	routerAdvert := func(vlan uint16) []byte {
+		ip := &layers.IPv6{Version: 6, HopLimit: 255, NextHeader: layers.IPProtocolICMPv6,
+			SrcIP: net.ParseIP("fe80::1"), DstIP: net.ParseIP("fe80::2")}
+		icmp := &layers.ICMPv6{TypeCode: layers.CreateICMPv6TypeCode(layers.ICMPv6TypeRouterAdvertisement, 0)}
+		check(icmp.SetNetworkLayerForChecksum(ip))
+		return filterFrame(t, router, hw, vlan, ip, icmp, gopacket.Payload(make([]byte, 12)))
+	}
+	otherTCP := func(vlan uint16) []byte {
+		ip := &layers.IPv4{Version: 4, TTL: 64, Protocol: layers.IPProtocolTCP,
+			SrcIP: net.IPv4(192, 168, 1, 1), DstIP: net.IPv4(192, 168, 1, 10)}
+		tcp := &layers.TCP{SrcPort: 443, DstPort: 50000, Window: 1024}
+		check(tcp.SetNetworkLayerForChecksum(ip))
+		return filterFrame(t, router, hw, vlan, ip, tcp)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		frame []byte
+		want  bool
+	}{
+		{"untagged DHCP reply to interface", dhcpReply(0), true},
+		{"untagged router advertisement to interface", routerAdvert(0), true},
+		{"tagged DHCP reply to interface", dhcpReply(100), true},
+		{"tagged router advertisement to interface", routerAdvert(100), true},
+		{"untagged other traffic to interface", otherTCP(0), false},
+	} {
+		ci := gopacket.CaptureInfo{CaptureLength: len(tc.frame), Length: len(tc.frame)}
+		if got := bpf.Matches(ci, tc.frame); got != tc.want {
+			t.Errorf("%s: match = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 

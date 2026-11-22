@@ -79,12 +79,16 @@ func interfaceHardware(name string) net.HardwareAddr {
 // discovery multicasts. hw is matched only as the destination of replies
 // to probes (DHCPv4, DHCPv6, and router advertisements), so the rest of
 // this machine's traffic is left out of the capture.
+//
+// vlan must be the last term. libpcap shifts every later offset by the
+// 4-byte tag once it compiles vlan, so a port or ICMPv6 test after it would
+// read the wrong bytes in an untagged frame.
 func captureFilter(mac string, hw net.HardwareAddr) string {
-	filter := "vlan or ether host " + mac + " or ether multicast or ether dst 01:80:c2:00:00:0e or ether dst 01:00:0c:cc:cc:cc"
+	filter := "ether host " + mac + " or ether multicast or ether dst 01:80:c2:00:00:0e or ether dst 01:00:0c:cc:cc:cc"
 	if len(hw) == 6 && !strings.EqualFold(hw.String(), mac) {
 		filter += " or (ether dst " + hw.String() + " and (udp port 68 or udp port 546 or icmp6[icmp6type] == icmp6-routeradvert))"
 	}
-	return filter
+	return filter + " or vlan"
 }
 
 // frameFromUs reports whether src is the probe MAC or the interface MAC.
